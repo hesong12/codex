@@ -12,8 +12,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use tokio::task;
 
-use crate::operations::run_git_for_status;
-
 const BASELINE_COMMIT_MESSAGE: &str =
     "Initialize Codex git baseline\n\nCo-authored-by: Codex <noreply@openai.com>";
 
@@ -154,8 +152,22 @@ fn commit_current_tree(repo: &gix::Repository, message: &str) -> anyhow::Result<
     Ok(())
 }
 
+/// Rebuilds `root/.git/index` from the `HEAD` tree entirely in-process via `gix`.
+///
+/// This intentionally avoids shelling out to the `git` binary: `git` is not guaranteed to be
+/// installed (or even resolvable without side effects, e.g. the macOS Command Line Tools
+/// install prompt) on machines that otherwise run Codex fine, since every other baseline
+/// operation in this module is already implemented on top of gitoxide.
 fn write_index_from_head(root: &Path) -> anyhow::Result<()> {
-    run_git_for_status(root, ["read-tree", "--reset", "HEAD"], /*env*/ None)
+    let repo = gix::open(root).with_context(|| format!("open git repo {}", root.display()))?;
+    let tree_id = repo
+        .head_tree_id()
+        .context("load HEAD tree id for baseline index")?;
+    let mut index = repo
+        .index_from_tree(&tree_id)
+        .context("build baseline index from HEAD tree")?;
+    index
+        .write(gix::index::write::Options::default())
         .context("write git baseline index from HEAD")
 }
 
@@ -752,5 +764,86 @@ mod tests {
         );
         assert!(diff.unified_diff.contains("old mode 100644"));
         assert!(diff.unified_diff.contains("new mode 100755"));
+    }
+
+    /// Regression test for the baseline reset needing the external `git` binary.
+    ///
+    /// This spawns the current test binary as a child process with `PATH` pointed at an empty
+    /// directory (no `git` executable resolvable at all) and re-invokes just this test by exact
+    /// name; the child sees the `NO_GIT_ON_PATH_CHILD` marker env var and runs the real
+    /// assertions in place of spawning another child. Isolating the broken `PATH` to a genuinely
+    /// separate child process (rather than mutating this process' environment) avoids racing
+    /// against every other test in this binary that legitimately shells out to `git` for
+    /// assertions (e.g. `git status --porcelain`).
+    ///
+    /// `reset_git_repository` and `diff_since_latest_init` must succeed with no `git` binary
+    /// anywhere on `PATH`, and the resulting `.git/index` must exactly reflect the `HEAD` tree.
+    /// If this code ever shells out to `git` again (e.g. via `Command::new("git")`), the child
+    /// process fails with a "No such file or directory" style error.
+    const NO_GIT_ON_PATH_CHILD: &str = "CODEX_GIT_UTILS_BASELINE_NO_GIT_ON_PATH_CHILD";
+
+    #[test]
+    fn reset_and_diff_succeed_without_git_binary_on_path() {
+        if std::env::var_os(NO_GIT_ON_PATH_CHILD).is_some() {
+            run_reset_and_diff_without_git_binary_on_path();
+            return;
+        }
+
+        let test_binary = std::env::current_exe().expect("resolve current test binary");
+        let empty_path_dir = TempDir::new().expect("empty PATH tempdir");
+        let output = Command::new(&test_binary)
+            .args([
+                "baseline::tests::reset_and_diff_succeed_without_git_binary_on_path",
+                "--exact",
+                "--nocapture",
+            ])
+            .env(NO_GIT_ON_PATH_CHILD, "1")
+            .env("PATH", empty_path_dir.path())
+            .output()
+            .expect("spawn child test process with an empty PATH");
+
+        assert!(
+            output.status.success(),
+            "child test process failed without git on PATH:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// Runs inside the child process spawned by
+    /// `reset_and_diff_succeed_without_git_binary_on_path`, where `PATH` has no `git` binary.
+    fn run_reset_and_diff_without_git_binary_on_path() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("build tokio runtime");
+        runtime.block_on(async {
+            let home = TempDir::new().expect("tempdir");
+            let root = home.path().join("repo");
+            fs::create_dir_all(&root).expect("create root");
+            fs::write(root.join("MEMORY.md"), "baseline").expect("write memory");
+
+            reset_git_repository(&root)
+                .await
+                .expect("reset repo without git on PATH");
+
+            assert!(root.join(".git").is_dir());
+            assert!(root.join(".git/index").is_file());
+
+            let diff = diff_since_latest_init(&root)
+                .await
+                .expect("diff without git on PATH");
+            assert!(!diff.has_changes());
+            assert_eq!(diff.unified_diff, "");
+
+            let repo = gix::open(&root).expect("open baseline repo");
+            let index = repo.open_index().expect("open baseline index");
+            let mut paths: Vec<String> = index
+                .entries()
+                .iter()
+                .map(|entry| entry.path(&index).to_string())
+                .collect();
+            paths.sort();
+            assert_eq!(paths, vec!["MEMORY.md".to_string()]);
+        });
     }
 }
