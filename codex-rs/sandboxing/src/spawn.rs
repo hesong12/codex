@@ -43,6 +43,8 @@ pub struct SpawnRequest<'a> {
 
 /// Spawn a process using the backend selected by the prepared sandbox request.
 pub async fn spawn_process(request: SpawnRequest<'_>) -> Result<SpawnedProcess> {
+    codex_utils_pty::host_secret_guard::ensure_host_secret_guard_enforced()
+        .context("host secret guard unavailable for process spawn")?;
     let tty = request.tty;
     let finish_spawn = |spawned| {
         if tty {

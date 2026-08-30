@@ -1,3 +1,4 @@
+use std::io;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -508,6 +509,7 @@ impl ExecServerClient {
         args: StdioExecServerConnectArgs,
     ) -> Result<Self, ExecServerError> {
         let mut child = stdio_command_process(&args.command)
+            .map_err(ExecServerError::Spawn)?
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -555,17 +557,35 @@ fn is_rendezvous_harness_url(websocket_url: &str) -> bool {
         .any(|(key, value)| key == "role" && value == "harness")
 }
 
-fn stdio_command_process(stdio_command: &StdioExecServerCommand) -> Command {
-    let mut command = Command::new(&stdio_command.program);
+fn stdio_command_process(stdio_command: &StdioExecServerCommand) -> io::Result<Command> {
+    stdio_command_process_for(
+        stdio_command,
+        codex_utils_pty::host_secret_guard::HostSecretGuardRequirement::from_process_environment(),
+    )
+}
+
+fn stdio_command_process_for(
+    stdio_command: &StdioExecServerCommand,
+    requirement: codex_utils_pty::host_secret_guard::HostSecretGuardRequirement,
+) -> io::Result<Command> {
+    let mut command = codex_utils_pty::host_secret_guard::model_child_tokio_command_for(
+        &stdio_command.program,
+        requirement,
+    )?;
     command.args(&stdio_command.args);
     command.envs(&stdio_command.env);
     scrub_non_inheritable_env_vars(command.as_std_mut());
+    codex_utils_pty::host_secret_guard::apply_inherited_handle_allowlist_for(
+        &mut command,
+        &[],
+        requirement,
+    )?;
     if let Some(cwd) = &stdio_command.cwd {
         command.current_dir(cwd);
     }
     #[cfg(unix)]
     command.process_group(0);
-    command
+    Ok(command)
 }
 
 #[cfg(test)]

@@ -12,7 +12,6 @@ use anyhow::Context as _;
 use codex_protocol::shell_environment::scrub_non_inheritable_env_vars;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use socket2::Socket;
-use tokio::process::Command;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -269,6 +268,25 @@ async fn handle_escalate_session_with_policy(
     parent_cancellation_token: CancellationToken,
     session_cancellation_token: CancellationToken,
 ) -> anyhow::Result<()> {
+    handle_escalate_session_with_policy_for(
+        socket,
+        policy,
+        command_executor,
+        parent_cancellation_token,
+        session_cancellation_token,
+        codex_utils_pty::host_secret_guard::HostSecretGuardRequirement::from_process_environment(),
+    )
+    .await
+}
+
+async fn handle_escalate_session_with_policy_for(
+    socket: AsyncSocket,
+    policy: Arc<dyn EscalationPolicy>,
+    command_executor: Arc<dyn ShellCommandExecutor>,
+    parent_cancellation_token: CancellationToken,
+    session_cancellation_token: CancellationToken,
+    host_secret_guard: codex_utils_pty::host_secret_guard::HostSecretGuardRequirement,
+) -> anyhow::Result<()> {
     let EscalateRequest {
         file,
         argv,
@@ -332,7 +350,10 @@ async fn handle_escalate_session_with_policy(
             let (program, args) = command
                 .split_first()
                 .ok_or_else(|| anyhow::anyhow!("prepared escalated command must not be empty"))?;
-            let mut command = Command::new(program);
+            let mut command = codex_utils_pty::host_secret_guard::model_child_tokio_command_for(
+                program,
+                host_secret_guard,
+            )?;
             command
                 .args(args)
                 .arg0(arg0.unwrap_or_else(|| program.clone()))
@@ -343,6 +364,7 @@ async fn handle_escalate_session_with_policy(
                 .stderr(Stdio::null())
                 .kill_on_drop(true);
             scrub_non_inheritable_env_vars(command.as_std_mut());
+            let preserved_fds = msg.fds.clone();
             unsafe {
                 command.pre_exec(move || {
                     for (dst_fd, src_fd) in msg.fds.iter().zip(&fds) {
@@ -351,6 +373,11 @@ async fn handle_escalate_session_with_policy(
                     Ok(())
                 });
             }
+            codex_utils_pty::host_secret_guard::apply_inherited_handle_allowlist_for(
+                &mut command,
+                &preserved_fds,
+                host_secret_guard,
+            )?;
             let mut child = command.spawn()?;
             let exit_status = tokio::select! {
                 status = child.wait() => status?,
@@ -844,6 +871,55 @@ mod tests {
         let result = client.receive::<SuperExecResult>().await?;
         assert_eq!(42, result.exit_code);
 
+        server_task.await?
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn handle_escalate_session_keeps_the_outer_process_guard_when_escalated()
+    -> anyhow::Result<()> {
+        let _guard = ESCALATE_SERVER_TEST_LOCK.acquire().await?;
+        let target = tempfile::NamedTempFile::new()?;
+        let (server, client) = AsyncSocket::pair()?;
+        let server_task = tokio::spawn(handle_escalate_session_with_policy_for(
+            server,
+            Arc::new(DeterministicEscalationPolicy {
+                decision: EscalationDecision::escalate(EscalationExecution::Unsandboxed),
+            }),
+            Arc::new(ForwardingShellCommandExecutor),
+            CancellationToken::new(),
+            CancellationToken::new(),
+            codex_utils_pty::host_secret_guard::HostSecretGuardRequirement::Required,
+        ));
+
+        client
+            .send(EscalateRequest {
+                file: PathBuf::from("/bin/sh"),
+                argv: vec![
+                    "sh".to_string(),
+                    "-c".to_string(),
+                    "printf guarded > \"$TARGET\" && /bin/cat \"$TARGET\" >/dev/null && /bin/ps -p 1 >/dev/null 2>&1".to_string(),
+                ],
+                workdir: AbsolutePathBuf::current_dir()?,
+                env: HashMap::from([(
+                    "TARGET".to_string(),
+                    target.path().to_string_lossy().to_string(),
+                )]),
+            })
+            .await?;
+        assert_eq!(
+            client.receive::<EscalateResponse>().await?,
+            EscalateResponse {
+                action: EscalateAction::Escalate,
+            }
+        );
+        client
+            .send_with_fds(SuperExecMessage { fds: Vec::new() }, &[])
+            .await?;
+
+        let result = client.receive::<SuperExecResult>().await?;
+        assert_ne!(result.exit_code, 0);
+        assert_eq!(std::fs::read_to_string(target.path())?, "guarded");
         server_task.await?
     }
 

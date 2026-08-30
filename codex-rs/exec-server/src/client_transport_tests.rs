@@ -24,6 +24,12 @@ use crate::NoiseRendezvousConnectBundle;
 use crate::NoiseRendezvousConnectProvider;
 use crate::client_api::DEFAULT_REMOTE_EXEC_SERVER_CONNECT_TIMEOUT;
 use crate::client_api::DEFAULT_REMOTE_EXEC_SERVER_INITIALIZE_TIMEOUT;
+#[cfg(target_os = "macos")]
+use crate::client_api::StdioExecServerCommand;
+#[cfg(target_os = "macos")]
+use codex_utils_pty::host_secret_guard::HOST_SECRET_GUARD_ENV_VAR;
+#[cfg(target_os = "macos")]
+use codex_utils_pty::host_secret_guard::HostSecretGuardRequirement;
 
 #[derive(Default)]
 struct SequenceNoiseConnectProvider {
@@ -130,6 +136,52 @@ fn registry_error(status: http::StatusCode, code: &str) -> ExecServerError {
         code: Some(code.to_string()),
         message: "registry unavailable".to_string(),
     }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn guarded_stdio_exec_server_is_inside_the_outer_process_boundary() -> Result<()> {
+    let command = super::stdio_command_process_for(
+        &StdioExecServerCommand {
+            program: "/usr/bin/true".to_string(),
+            args: vec!["argument".to_string()],
+            env: std::collections::HashMap::from([
+                (HOST_SECRET_GUARD_ENV_VAR.to_string(), "forged".to_string()),
+                ("SAFE".to_string(), "value".to_string()),
+            ]),
+            cwd: None,
+        },
+        HostSecretGuardRequirement::Required,
+    )?;
+    let command = command.as_std();
+
+    assert_eq!(command.get_program(), "/usr/bin/sandbox-exec");
+    let args = command
+        .get_args()
+        .map(std::ffi::OsStr::to_os_string)
+        .collect::<Vec<_>>();
+    assert_eq!(args.len(), 4);
+    assert_eq!(args[0], "-p");
+    assert_eq!(args[2], "/usr/bin/true");
+    assert_eq!(args[3], "argument");
+    let configured_env = command
+        .get_envs()
+        .map(|(name, value)| {
+            (
+                name.to_os_string(),
+                value.map(std::ffi::OsStr::to_os_string),
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    assert_eq!(
+        configured_env.get(std::ffi::OsStr::new(HOST_SECRET_GUARD_ENV_VAR)),
+        Some(&None)
+    );
+    assert_eq!(
+        configured_env.get(std::ffi::OsStr::new("SAFE")),
+        Some(&Some(std::ffi::OsString::from("value")))
+    );
+    Ok(())
 }
 
 #[tokio::test(start_paused = true)]

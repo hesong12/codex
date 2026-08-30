@@ -16,6 +16,7 @@ anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 codex-protocol = { workspace = true }
 codex-utils-absolute-path = { workspace = true }
+codex-utils-pty = { workspace = true }
 libc = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

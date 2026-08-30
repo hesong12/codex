@@ -56,6 +56,16 @@ pub fn host_secret_guard_required() -> bool {
     HostSecretGuardRequirement::from_process_environment() == HostSecretGuardRequirement::Required
 }
 
+pub fn ensure_host_secret_guard_enforced() -> io::Result<()> {
+    ensure_host_secret_guard_enforced_for(HostSecretGuardRequirement::from_process_environment())
+}
+
+pub fn ensure_host_secret_guard_enforced_for(
+    requirement: HostSecretGuardRequirement,
+) -> io::Result<()> {
+    ensure_enforced(requirement)
+}
+
 pub fn host_secret_guard_attestation_for(
     requirement: HostSecretGuardRequirement,
 ) -> HostSecretGuardAttestation {
@@ -130,7 +140,19 @@ pub fn apply_inherited_handle_allowlist(
     command: &mut tokio::process::Command,
     preserved_fds: &[i32],
 ) -> io::Result<()> {
-    ensure_enforced(HostSecretGuardRequirement::from_process_environment())?;
+    apply_inherited_handle_allowlist_for(
+        command,
+        preserved_fds,
+        HostSecretGuardRequirement::from_process_environment(),
+    )
+}
+
+pub fn apply_inherited_handle_allowlist_for(
+    command: &mut tokio::process::Command,
+    preserved_fds: &[i32],
+    requirement: HostSecretGuardRequirement,
+) -> io::Result<()> {
+    ensure_enforced(requirement)?;
     #[cfg(unix)]
     {
         let preserved_fds = preserved_fds.to_vec();
