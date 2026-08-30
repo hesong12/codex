@@ -16,6 +16,8 @@ use codex_extension_api::empty_extension_registry;
 use codex_history::InitialHistory;
 use codex_history::ResumedHistory;
 use codex_models_manager::manager::RefreshStrategy;
+use codex_models_manager::manager::StaticModelsManager;
+use codex_models_manager::registry::ModelsManagerRegistry;
 use codex_protocol::ResponseItemId;
 use codex_protocol::capabilities::CapabilityRootLocation;
 use codex_protocol::capabilities::SelectedCapabilityRoot;
@@ -2210,6 +2212,133 @@ async fn new_uses_active_provider_for_model_refresh() {
         )
         .await;
     assert_eq!(models_mock.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn thread_and_subagent_use_the_effective_provider_model_manager() {
+    let temp_dir = tempdir().expect("tempdir");
+    let mut config = test_config().await;
+    config.codex_home = temp_dir.path().join("codex-home").abs();
+    config.cwd = config.codex_home.abs();
+    std::fs::create_dir_all(&config.codex_home).expect("create codex home");
+
+    let mut default_model = codex_models_manager::bundled_models_response()
+        .expect("bundled models should parse")
+        .models
+        .into_iter()
+        .next()
+        .expect("bundled catalog should contain a model");
+    default_model.slug = "default/model".to_string();
+    let mut alternate_model = default_model.clone();
+    alternate_model.slug = "alternate/model".to_string();
+
+    let default_manager = Arc::new(StaticModelsManager::new(
+        /*auth_manager*/ None,
+        ModelsResponse {
+            models: vec![default_model],
+        },
+    ));
+    let alternate_manager = Arc::new(StaticModelsManager::new(
+        /*auth_manager*/ None,
+        ModelsResponse {
+            models: vec![alternate_model],
+        },
+    ));
+    let registry = ModelsManagerRegistry::new(
+        "default",
+        HashMap::from([
+            (
+                "default".to_string(),
+                default_manager as SharedModelsManager,
+            ),
+            (
+                "alternate".to_string(),
+                alternate_manager as SharedModelsManager,
+            ),
+        ]),
+    )
+    .expect("default provider manager");
+
+    let alternate_provider = config.model_provider.clone();
+    config.model_provider_id = "alternate".to_string();
+    config.model_provider = alternate_provider.clone();
+    config
+        .model_providers
+        .insert("alternate".to_string(), alternate_provider);
+    config.model = Some("alternate/model".to_string());
+
+    let auth_manager =
+        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let manager = ThreadManager::new_with_models_manager_registry(
+        &config,
+        auth_manager,
+        registry,
+        crate::CodexAppsToolsCache::default(),
+        SessionSource::Exec,
+        Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
+        empty_extension_registry(),
+        Arc::new(crate::test_support::EmptyUserInstructionsProvider),
+        /*analytics_events_client*/ None,
+        thread_store_from_config(&config, /*state_db*/ None),
+        /*agent_graph_store*/ None,
+        TEST_INSTALLATION_ID.to_string(),
+        /*attestation_provider*/ None,
+        /*external_time_provider*/ None,
+    );
+
+    let root = manager
+        .start_thread(StartThreadOptions::new(config.clone()))
+        .await
+        .expect("start alternate-provider root");
+    let child = root
+        .thread
+        .session
+        .services
+        .agent_control
+        .spawn_agent_with_metadata(
+            config,
+            vec![UserInput::Text {
+                text: "child task".to_string(),
+                text_elements: Vec::new(),
+            }],
+            Some(SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+                parent_thread_id: root.thread_id,
+                depth: 1,
+                agent_path: None,
+                agent_nickname: None,
+                agent_role: None,
+            })),
+            SpawnAgentOptions {
+                parent_thread_id: Some(root.thread_id),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("spawn alternate-provider child");
+    let child_thread = manager
+        .get_thread(child.thread_id)
+        .await
+        .expect("alternate-provider child thread");
+
+    for thread in [&root.thread, &child_thread] {
+        assert_eq!(
+            thread
+                .session
+                .services
+                .models_manager
+                .get_remote_models()
+                .await
+                .into_iter()
+                .map(|model| model.slug)
+                .collect::<Vec<_>>(),
+            vec!["alternate/model"]
+        );
+    }
+
+    let report = manager
+        .shutdown_all_threads_bounded(Duration::from_secs(10))
+        .await;
+    assert_eq!(report.completed.len(), 2);
 }
 
 #[tokio::test]

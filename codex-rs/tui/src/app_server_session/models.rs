@@ -30,6 +30,7 @@ impl AppServerSession {
                 .request_typed::<ModelListResponse>(ClientRequest::ModelList {
                     request_id: RequestId::String(format!("model-list-{request_id}")),
                     params: ModelListParams {
+                        model_provider: None,
                         cursor: None,
                         limit: None,
                         include_hidden: Some(true),

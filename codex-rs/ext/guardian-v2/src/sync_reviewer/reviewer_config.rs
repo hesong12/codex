@@ -42,7 +42,7 @@ pub(super) async fn prepare(
         parent_model,
         parent_reasoning_effort,
     )
-    .await;
+    .await?;
     let config = isolated_reviewer_config(parent_config, parent_model, model, live_network_config)?;
     let mut environments = parent_environments.to_vec();
     for environment in &mut environments {
@@ -82,8 +82,10 @@ async fn select_reviewer_model(
     parent_config: &Config,
     parent_model: &str,
     parent_reasoning_effort: Option<ReasoningEffort>,
-) -> ReviewerModel {
-    let models_manager = thread_manager.get_models_manager();
+) -> Result<ReviewerModel, ApprovalReviewError> {
+    let models_manager = thread_manager
+        .get_models_manager_for_provider(&parent_config.model_provider_id)
+        .map_err(|error| ApprovalReviewError::Failed(error.to_string()))?;
     let manager_config = parent_config.to_models_manager_config();
     let parent_model_info = models_manager
         .get_model_info(parent_model, &manager_config)
@@ -130,11 +132,11 @@ async fn select_reviewer_model(
         )
     };
 
-    ReviewerModel {
+    Ok(ReviewerModel {
         info: models_manager.get_model_info(&model, &manager_config).await,
         reasoning_effort,
         preserve_client_developer_messages: parent_model_info.node_repl_auto_review_required,
-    }
+    })
 }
 
 fn preferred_reasoning_effort(

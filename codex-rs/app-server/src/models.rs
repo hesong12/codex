@@ -7,21 +7,37 @@ use codex_app_server_protocol::ReasoningEffortOption;
 use codex_core::ThreadManager;
 use codex_http_client::HttpClientFactory;
 use codex_models_manager::manager::RefreshStrategy;
+use codex_protocol::error::Result as CodexResult;
 use codex_protocol::openai_models::ModelPreset;
 use codex_protocol::openai_models::ReasoningEffortPreset;
 
 pub async fn supported_models(
     thread_manager: Arc<ThreadManager>,
+    model_provider: Option<&str>,
     include_hidden: bool,
     http_client_factory: HttpClientFactory,
-) -> Vec<Model> {
-    thread_manager
-        .list_models(RefreshStrategy::OnlineIfUncached, http_client_factory)
-        .await
+) -> CodexResult<Vec<Model>> {
+    let presets = match model_provider {
+        Some(model_provider) => {
+            thread_manager
+                .list_models_for_provider(
+                    model_provider,
+                    RefreshStrategy::OnlineIfUncached,
+                    http_client_factory,
+                )
+                .await?
+        }
+        None => {
+            thread_manager
+                .list_models(RefreshStrategy::OnlineIfUncached, http_client_factory)
+                .await
+        }
+    };
+    Ok(presets
         .into_iter()
         .filter(|preset| include_hidden || preset.show_in_picker)
         .map(model_from_preset)
-        .collect()
+        .collect())
 }
 
 fn model_from_preset(preset: ModelPreset) -> Model {

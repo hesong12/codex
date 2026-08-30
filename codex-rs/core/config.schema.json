@@ -2177,6 +2177,14 @@
           "description": "Additional HTTP headers to include in requests to this provider where the (key, value) pairs are the header name and value.",
           "type": "object"
         },
+        "model_catalog_json": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            }
+          ],
+          "description": "Optional authoritative static model catalog for this provider."
+        },
         "name": {
           "default": "",
           "description": "Friendly display name.",

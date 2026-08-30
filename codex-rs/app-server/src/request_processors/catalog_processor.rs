@@ -245,16 +245,19 @@ impl CatalogRequestProcessor {
         params: ModelListParams,
     ) -> Result<ModelListResponse, JSONRPCErrorError> {
         let ModelListParams {
+            model_provider,
             limit,
             cursor,
             include_hidden,
         } = params;
         let models = supported_models(
             thread_manager,
+            model_provider.as_deref(),
             include_hidden.unwrap_or(false),
             http_client_factory,
         )
-        .await;
+        .await
+        .map_err(|err| invalid_request(err.to_string()))?;
         let total = models.len();
 
         if total == 0 {

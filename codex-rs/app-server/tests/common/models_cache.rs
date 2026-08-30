@@ -110,7 +110,6 @@ pub fn write_models_cache_with_models(
     codex_home: &Path,
     models: Vec<ModelInfo>,
 ) -> std::io::Result<()> {
-    let cache_path = codex_home.join("models_cache.json");
     // DateTime<Utc> serializes to RFC3339 format by default with serde
     let fetched_at: DateTime<Utc> = Utc::now();
     let client_version = client_version_to_whole();
@@ -120,5 +119,10 @@ pub fn write_models_cache_with_models(
         "client_version": client_version,
         "models": models
     });
-    std::fs::write(cache_path, serde_json::to_string_pretty(&cache)?)
+    let cache_json = serde_json::to_string_pretty(&cache)?;
+    std::fs::write(codex_home.join("models_cache.json"), &cache_json)?;
+
+    let provider_cache_dir = codex_home.join("models_cache");
+    std::fs::create_dir_all(&provider_cache_dir)?;
+    std::fs::write(provider_cache_dir.join("6f70656e6169.json"), cache_json)
 }

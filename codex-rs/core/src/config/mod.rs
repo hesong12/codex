@@ -856,6 +856,9 @@ pub struct Config {
     /// Combined provider map (defaults plus user-defined providers).
     pub model_providers: HashMap<String, ModelProviderInfo>,
 
+    /// Authoritative static catalogs loaded from provider-local `model_catalog_json` paths.
+    pub model_catalogs_by_provider: HashMap<String, ModelsResponse>,
+
     /// Maximum total bytes of project instruction content across all selected environments.
     pub project_doc_max_bytes: usize,
 
@@ -2063,6 +2066,30 @@ fn load_model_catalog(
     model_catalog_json
         .map(|path| load_catalog_json(&path))
         .transpose()
+}
+
+fn load_provider_model_catalogs(
+    model_providers: &HashMap<String, ModelProviderInfo>,
+) -> std::io::Result<HashMap<String, ModelsResponse>> {
+    model_providers
+        .iter()
+        .filter_map(|(provider_id, provider)| {
+            provider
+                .model_catalog_json
+                .as_ref()
+                .map(|path| (provider_id, path))
+        })
+        .map(|(provider_id, path)| {
+            load_catalog_json(path)
+                .map(|catalog| (provider_id.clone(), catalog))
+                .map_err(|err| {
+                    std::io::Error::new(
+                        err.kind(),
+                        format!("model_providers.{provider_id}.model_catalog_json: {err}"),
+                    )
+                })
+        })
+        .collect()
 }
 
 fn filter_mcp_servers_by_requirements(
@@ -3935,6 +3962,7 @@ impl Config {
 
         let check_for_update_on_startup = cfg.check_for_update_on_startup.unwrap_or(true);
         let model_catalog = load_model_catalog(cfg.model_catalog_json.clone())?;
+        let model_catalogs_by_provider = load_provider_model_catalogs(&model_providers)?;
 
         let log_dir = cfg
             .log_dir
@@ -4188,6 +4216,7 @@ impl Config {
                 .map(Duration::from_millis)
                 .unwrap_or(DEFAULT_OPTIONAL_MCP_STARTUP_GRACE),
             model_providers,
+            model_catalogs_by_provider,
             project_doc_max_bytes: cfg.project_doc_max_bytes.unwrap_or(AGENTS_MD_MAX_BYTES),
             project_doc_fallback_filenames: cfg
                 .project_doc_fallback_filenames

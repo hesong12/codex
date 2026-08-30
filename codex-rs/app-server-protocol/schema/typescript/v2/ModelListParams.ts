@@ -4,6 +4,10 @@
 
 export type ModelListParams = {
 /**
+ * Provider whose exact catalog should be listed. Defaults to the process provider.
+ */
+modelProvider?: string | null,
+/**
  * Opaque pagination cursor returned by a previous call.
  */
 cursor?: string | null,

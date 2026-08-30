@@ -12,6 +12,7 @@ use codex_protocol::config_types::ModelProviderAuthInfo;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::EnvVarError;
 use codex_protocol::error::Result as CodexResult;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_redacted_string::RedactedString;
 use http::HeaderMap;
 use http::header::HeaderName;
@@ -99,6 +100,8 @@ pub struct ModelProviderInfo {
     pub name: String,
     /// Base URL for the provider's OpenAI-compatible API.
     pub base_url: Option<String>,
+    /// Optional authoritative static model catalog for this provider.
+    pub model_catalog_json: Option<AbsolutePathBuf>,
     /// Environment variable that stores the user's API key for this provider.
     pub env_key: Option<String>,
 
@@ -386,6 +389,7 @@ impl ModelProviderInfo {
         ModelProviderInfo {
             name: OPENAI_PROVIDER_NAME.into(),
             base_url,
+            model_catalog_json: None,
             env_key: None,
             env_key_instructions: None,
             experimental_bearer_token: None,
@@ -429,6 +433,7 @@ impl ModelProviderInfo {
             // this is unset. A configured value is therefore unambiguously an
             // endpoint override.
             base_url: None,
+            model_catalog_json: None,
             env_key: None,
             env_key_instructions: None,
             experimental_bearer_token: None,
@@ -557,19 +562,21 @@ pub fn merge_configured_model_providers(
             AMAZON_BEDROCK_PROVIDER_ID | AMAZON_BEDROCK_RUNTIME_PROVIDER_ID
         ) {
             let base_url_override = provider.base_url.take();
+            let model_catalog_json_override = provider.model_catalog_json.take();
             let auth_override = provider.auth.take();
             let aws_override = provider.aws.take();
             let http_headers_override = provider.http_headers.take();
             if provider != ModelProviderInfo::default() {
                 return Err(format!(
                     "model_providers.{key} only supports changing \
-`base_url`, `auth`, `http_headers`, `aws.profile`, `aws.region`, and `aws.auth_refresh`; \
+`base_url`, `model_catalog_json`, `auth`, `http_headers`, `aws.profile`, `aws.region`, and `aws.auth_refresh`; \
 other non-default provider fields are not supported"
                 ));
             }
 
             if let Some(built_in_provider) = model_providers.get_mut(&key) {
                 built_in_provider.base_url = base_url_override;
+                built_in_provider.model_catalog_json = model_catalog_json_override;
                 built_in_provider.auth = auth_override;
                 if let Some(aws_override) = aws_override {
                     built_in_provider.aws = Some(aws_override);
@@ -612,6 +619,7 @@ pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> M
     ModelProviderInfo {
         name: "gpt-oss".into(),
         base_url: Some(base_url.into()),
+        model_catalog_json: None,
         env_key: None,
         env_key_instructions: None,
         experimental_bearer_token: None,

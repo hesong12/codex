@@ -69,7 +69,13 @@ struct StageOneOutput {
 /// 3) run stage-1 extraction jobs in parallel
 /// 4) emit metrics and logs
 pub async fn run(context: Arc<MemoryStartupContext>, config: Arc<Config>) {
-    let stage_one_context = build_request_context(context.as_ref(), config.as_ref()).await;
+    let stage_one_context = match build_request_context(context.as_ref(), config.as_ref()).await {
+        Ok(context) => context,
+        Err(error) => {
+            warn!(%error, "memory phase 1 could not resolve the effective provider catalog");
+            return;
+        }
+    };
     let _phase_one_e2e_timer = stage_one_context.start_timer(MEMORY_PHASE_ONE_E2E_MS);
 
     // 1. Claim startup job.
@@ -190,7 +196,7 @@ async fn claim_startup_jobs(
 async fn build_request_context(
     context: &MemoryStartupContext,
     config: &Config,
-) -> StageOneRequestContext {
+) -> Result<StageOneRequestContext, CodexErr> {
     let model_name = config.memories.extract_model.clone().unwrap_or_else(|| {
         context
             .provider()

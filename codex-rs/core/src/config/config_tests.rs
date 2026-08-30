@@ -77,6 +77,7 @@ use codex_login::default_client::RESIDENCY_HEADER_NAME;
 use codex_login::test_support::auth_manager_from_optional_auth;
 use codex_model_provider::ProviderCapabilities;
 use codex_model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
+use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
 use codex_model_provider_info::WireApi;
 use codex_models_manager::bundled_models_response;
@@ -1190,7 +1191,7 @@ supports_websockets = true
 
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     assert!(err.to_string().contains(
-        "model_providers.amazon-bedrock only supports changing `base_url`, `auth`, `http_headers`, `aws.profile`, `aws.region`, and `aws.auth_refresh`; other non-default provider fields are not supported"
+        "model_providers.amazon-bedrock only supports changing `base_url`, `model_catalog_json`, `auth`, `http_headers`, `aws.profile`, `aws.region`, and `aws.auth_refresh`; other non-default provider fields are not supported"
     ));
 }
 
@@ -9437,6 +9438,44 @@ async fn model_catalog_json_loads_from_path() -> std::io::Result<()> {
     .await?;
 
     assert_eq!(config.model_catalog, Some(catalog));
+    Ok(())
+}
+
+#[tokio::test]
+async fn provider_model_catalog_json_loads_for_exact_provider() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let catalog_path = codex_home.path().join("openrouter-catalog.json");
+    let mut catalog = bundled_models_response()
+        .unwrap_or_else(|err| panic!("bundled models.json should parse: {err}"));
+    catalog.models = catalog.models.into_iter().take(1).collect();
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string(&catalog).expect("serialize catalog"),
+    )?;
+
+    let cfg = ConfigToml {
+        model_providers: HashMap::from([(
+            "openrouter".to_string(),
+            ModelProviderInfo {
+                name: "OpenRouter".to_string(),
+                model_catalog_json: Some(catalog_path.abs()),
+                ..ModelProviderInfo::default()
+            },
+        )]),
+        ..Default::default()
+    };
+
+    let config = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides::default(),
+        codex_home.abs(),
+    )
+    .await?;
+
+    assert_eq!(
+        config.model_catalogs_by_provider,
+        HashMap::from([("openrouter".to_string(), catalog)])
+    );
     Ok(())
 }
 

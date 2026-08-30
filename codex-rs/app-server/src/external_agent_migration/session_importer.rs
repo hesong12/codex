@@ -432,7 +432,15 @@ impl ExternalAgentSessionImporter {
                     format!("failed to load imported session config: {err}"),
                 )
             })?;
-        let models_manager = self.thread_manager.get_models_manager();
+        let models_manager = self
+            .thread_manager
+            .get_models_manager_for_provider(&config.model_provider_id)
+            .map_err(|err| {
+                SessionImportStepFailure::new(
+                    "failed_to_resolve_model_provider",
+                    format!("failed to resolve imported session model provider: {err}"),
+                )
+            })?;
         let model = models_manager
             .get_default_model(
                 &config.model,

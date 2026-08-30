@@ -154,8 +154,20 @@ impl ThreadLifecycleContributor<Config> for GuardianV2Extension {
                 }
             };
             let luna_compaction_hash = if let Some(thread_manager) = self.thread_manager.upgrade() {
-                thread_manager
-                    .get_models_manager()
+                let models_manager = match thread_manager
+                    .get_models_manager_for_provider(&input.config.model_provider_id)
+                {
+                    Ok(models_manager) => models_manager,
+                    Err(error) => {
+                        self.event_sink.emit_warning(ExtensionWarning {
+                            thread_id,
+                            turn_id: None,
+                            message: error.to_string(),
+                        });
+                        return;
+                    }
+                };
+                models_manager
                     .get_model_info(MODEL, &input.config.to_models_manager_config())
                     .await
                     .comp_hash
@@ -685,7 +697,8 @@ impl GuardianV2Extension {
                         .approval_review_preferred_model()
                     });
                     let review_model = manager
-                        .get_models_manager()
+                        .get_models_manager_for_provider(&config.model_provider_id)
+                        .map_err(|error| error.to_string())?
                         .get_model_info(review_model_id, &config.to_models_manager_config())
                         .await;
                     if review_model.used_fallback_model_metadata && review_model_override.is_none()

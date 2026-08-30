@@ -7,11 +7,41 @@ use std::fmt;
 use std::future::Future;
 use std::io;
 use std::io::ErrorKind;
+use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::fs;
 use tracing::info;
+
+const PROVIDER_CACHE_DIRECTORY: &str = "models_cache";
+const PROVIDER_CACHE_TTL: Duration = Duration::from_secs(300);
+
+/// Creates a file-backed model cache whose on-disk identity is scoped to one provider.
+///
+/// Provider IDs are encoded as hexadecimal bytes so configured IDs can never escape the cache
+/// directory or collide through platform-specific path normalization.
+pub fn file_models_cache_for_provider(
+    codex_home: &Path,
+    provider_id: &str,
+) -> Arc<dyn ModelsCache> {
+    Arc::new(FileModelsCache::new(
+        provider_cache_path(codex_home, provider_id),
+        PROVIDER_CACHE_TTL,
+    ))
+}
+
+fn provider_cache_path(codex_home: &Path, provider_id: &str) -> PathBuf {
+    let encoded_provider_id = provider_id
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    codex_home
+        .join(PROVIDER_CACHE_DIRECTORY)
+        .join(format!("{encoded_provider_id}.json"))
+}
 
 /// Asynchronous storage for model catalog snapshots used by the models manager.
 ///
@@ -235,3 +265,7 @@ async fn save_file(cache_path: &PathBuf, cache: &ModelsCacheEntry) -> Result<(),
 fn cache_error(error: impl fmt::Display) -> ModelsCacheError {
     ModelsCacheError::new(error.to_string())
 }
+
+#[cfg(test)]
+#[path = "cache_tests.rs"]
+mod tests;

@@ -211,18 +211,18 @@ impl MemoryStartupContext {
         config: &Config,
         model_name: &str,
         reasoning_effort: ReasoningEffort,
-    ) -> StageOneRequestContext {
+    ) -> Result<StageOneRequestContext, codex_protocol::error::CodexErr> {
         let config_snapshot = self.thread.config_snapshot().await;
         let model_info = self
             .thread_manager
-            .get_models_manager()
+            .get_models_manager_for_provider(&config.model_provider_id)?
             .get_model_info(model_name, &config.to_models_manager_config())
             .await;
         let reasoning_summary = config
             .model_reasoning_summary
             .unwrap_or(model_info.default_reasoning_summary);
 
-        StageOneRequestContext {
+        Ok(StageOneRequestContext {
             model_info,
             session_telemetry: build_session_telemetry(
                 &self.auth_manager,
@@ -235,7 +235,7 @@ impl MemoryStartupContext {
             reasoning_effort: Some(reasoning_effort),
             reasoning_summary,
             service_tier: config_snapshot.service_tier,
-        }
+        })
     }
 
     pub(crate) async fn stream_stage_one_prompt(

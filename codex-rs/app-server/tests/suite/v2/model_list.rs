@@ -16,6 +16,7 @@ use codex_app_server_protocol::ModelUpgradeInfo;
 use codex_app_server_protocol::ReasoningEffortOption;
 use codex_app_server_protocol::RequestId;
 use codex_config::types::AuthCredentialsStoreMode;
+use codex_models_manager::bundled_models_response;
 use codex_protocol::openai_models::MODEL_SPECIALTY_CYBER;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelPreset;
@@ -98,6 +99,20 @@ fn expected_visible_models() -> Vec<Model> {
         .collect()
 }
 
+fn provider_catalog(slug: &str) -> ModelsResponse {
+    let mut model = bundled_models_response()
+        .expect("bundled models should parse")
+        .models
+        .into_iter()
+        .find(|model| model.visibility == codex_protocol::openai_models::ModelVisibility::List)
+        .expect("bundled catalog should contain a visible model");
+    model.slug = slug.to_string();
+    model.display_name = slug.to_string();
+    ModelsResponse {
+        models: vec![model],
+    }
+}
+
 #[tokio::test]
 async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
     let codex_home = TempDir::new()?;
@@ -114,6 +129,7 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
         .request(|request_id| ClientRequest::ModelList {
             request_id,
             params: ModelListParams {
+                model_provider: None,
                 limit: Some(100),
                 cursor: None,
                 include_hidden: None,
@@ -144,6 +160,7 @@ async fn list_models_includes_hidden_models() -> Result<()> {
         .request(|request_id| ClientRequest::ModelList {
             request_id,
             params: ModelListParams {
+                model_provider: None,
                 limit: Some(100),
                 cursor: None,
                 include_hidden: Some(true),
@@ -231,6 +248,7 @@ openai_base_url = "{server_uri}/v1"
         .await?;
     let request_id = mcp
         .send_list_models_request(ModelListParams {
+            model_provider: None,
             limit: Some(100),
             cursor: None,
             include_hidden: None,
@@ -284,6 +302,103 @@ openai_base_url = "{server_uri}/v1"
 }
 
 #[tokio::test]
+async fn list_models_uses_only_the_requested_provider_catalog() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    let first_catalog_path = codex_home.path().join("first-models.json");
+    let second_catalog_path = codex_home.path().join("second-models.json");
+    std::fs::write(
+        &first_catalog_path,
+        serde_json::to_vec(&provider_catalog("first/model"))?,
+    )?;
+    std::fs::write(
+        &second_catalog_path,
+        serde_json::to_vec(&provider_catalog("second/model"))?,
+    )?;
+    std::fs::write(
+        codex_home.path().join("config.toml"),
+        format!(
+            r#"
+model_provider = "first"
+
+[model_providers.first]
+name = "First"
+model_catalog_json = {first_catalog_path:?}
+
+[model_providers.second]
+name = "Second"
+model_catalog_json = {second_catalog_path:?}
+"#,
+            first_catalog_path = first_catalog_path.display().to_string(),
+            second_catalog_path = second_catalog_path.display().to_string(),
+        ),
+    )?;
+
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized()
+        .await?;
+
+    let ModelListResponse {
+        data: second_models,
+        next_cursor,
+    } = mcp
+        .request(|request_id| ClientRequest::ModelList {
+            request_id,
+            params: ModelListParams {
+                model_provider: Some("second".to_string()),
+                limit: None,
+                cursor: None,
+                include_hidden: Some(true),
+            },
+        })
+        .await?;
+
+    assert_eq!(
+        second_models
+            .into_iter()
+            .map(|model| model.model)
+            .collect::<Vec<_>>(),
+        vec!["second/model"]
+    );
+    assert!(next_cursor.is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_models_rejects_an_unknown_provider() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    write_models_cache(codex_home.path())?;
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized()
+        .await?;
+
+    let request_id = mcp
+        .send_list_models_request(ModelListParams {
+            model_provider: Some("missing".to_string()),
+            limit: None,
+            cursor: None,
+            include_hidden: None,
+        })
+        .await?;
+    let error: JSONRPCError = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
+    )
+    .await??;
+
+    assert_eq!(error.id, RequestId::Integer(request_id));
+    assert_eq!(error.error.code, INVALID_REQUEST_ERROR_CODE);
+    assert_eq!(
+        error.error.message,
+        "Model provider `missing` does not have a registered models manager"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn list_models_pagination_works() -> Result<()> {
     let codex_home = TempDir::new()?;
     write_models_cache(codex_home.path())?;
@@ -305,6 +420,7 @@ async fn list_models_pagination_works() -> Result<()> {
             .request(|request_id| ClientRequest::ModelList {
                 request_id,
                 params: ModelListParams {
+                    model_provider: None,
                     limit: Some(1),
                     cursor: cursor.clone(),
                     include_hidden: None,
@@ -341,6 +457,7 @@ async fn list_models_rejects_invalid_cursor() -> Result<()> {
 
     let request_id = mcp
         .send_list_models_request(ModelListParams {
+            model_provider: None,
             limit: None,
             cursor: Some("invalid".to_string()),
             include_hidden: None,

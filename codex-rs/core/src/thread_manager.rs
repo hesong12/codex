@@ -44,8 +44,10 @@ use codex_login::default_client::originator;
 use codex_model_provider::create_model_provider;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::OPENAI_PROVIDER_ID;
+use codex_models_manager::cache::file_models_cache_for_provider;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_models_manager::manager::SharedModelsManager;
+use codex_models_manager::registry::ModelsManagerRegistry;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::error::CodexErr;
@@ -345,7 +347,7 @@ pub(crate) struct ThreadManagerState {
     thread_created_tx: broadcast::Sender<ThreadId>,
     thread_id_generator: ThreadIdGenerator,
     auth_manager: Arc<AuthManager>,
-    models_manager: SharedModelsManager,
+    models_managers: ModelsManagerRegistry,
     environment_manager: Arc<EnvironmentManager>,
     starting_mcp_runtimes: std::sync::Mutex<Vec<std::sync::Weak<AtomicBool>>>,
     skills_service: Arc<HostSkillsService>,
@@ -374,6 +376,36 @@ pub fn build_models_manager(
         config.codex_home.to_path_buf(),
         config.model_catalog.clone(),
     )
+}
+
+pub fn build_models_manager_registry(
+    config: &Config,
+    auth_manager: Arc<AuthManager>,
+) -> ModelsManagerRegistry {
+    let managers = config
+        .model_providers
+        .iter()
+        .map(|(provider_id, provider_info)| {
+            let provider =
+                create_model_provider(provider_info.clone(), Some(Arc::clone(&auth_manager)));
+            let provider_catalog = config
+                .model_catalogs_by_provider
+                .get(provider_id)
+                .cloned()
+                .or_else(|| {
+                    (provider_id == &config.model_provider_id)
+                        .then(|| config.model_catalog.clone())
+                        .flatten()
+                });
+            let cache = file_models_cache_for_provider(&config.codex_home, provider_id);
+            (
+                provider_id.clone(),
+                provider.models_manager_with_cache(provider_catalog, cache),
+            )
+        })
+        .collect();
+    ModelsManagerRegistry::new(config.model_provider_id.clone(), managers)
+        .unwrap_or_else(|| unreachable!("effective provider is present in model_providers"))
 }
 
 pub fn thread_store_from_config(
@@ -454,6 +486,43 @@ impl ThreadManager {
         attestation_provider: Option<Arc<dyn AttestationProvider>>,
         external_time_provider: Option<Arc<dyn TimeProvider>>,
     ) -> Self {
+        let models_managers =
+            ModelsManagerRegistry::from_default(config.model_provider_id.clone(), models_manager);
+        Self::new_with_models_manager_registry(
+            config,
+            auth_manager,
+            models_managers,
+            codex_apps_tools_cache,
+            session_source,
+            environment_manager,
+            extensions,
+            user_instructions_provider,
+            analytics_events_client,
+            thread_store,
+            agent_graph_store,
+            installation_id,
+            attestation_provider,
+            external_time_provider,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_models_manager_registry(
+        config: &Config,
+        auth_manager: Arc<AuthManager>,
+        models_managers: ModelsManagerRegistry,
+        codex_apps_tools_cache: CodexAppsToolsCache,
+        session_source: SessionSource,
+        environment_manager: Arc<EnvironmentManager>,
+        extensions: Arc<ExtensionRegistry<Config>>,
+        user_instructions_provider: Arc<dyn UserInstructionsProvider>,
+        analytics_events_client: Option<AnalyticsEventsClient>,
+        thread_store: Arc<dyn ThreadStore>,
+        agent_graph_store: Option<Arc<dyn AgentGraphStore>>,
+        installation_id: String,
+        attestation_provider: Option<Arc<dyn AttestationProvider>>,
+        external_time_provider: Option<Arc<dyn TimeProvider>>,
+    ) -> Self {
         let codex_home = config.codex_home.clone();
         let restriction_product = session_source.restriction_product();
         let (thread_created_tx, _) = broadcast::channel(THREAD_CREATED_CHANNEL_CAPACITY);
@@ -486,7 +555,7 @@ impl ThreadManager {
                 threads: Arc::new(RwLock::new(HashMap::new())),
                 thread_created_tx,
                 thread_id_generator: default_thread_id_generator(),
-                models_manager,
+                models_managers,
                 environment_manager,
                 starting_mcp_runtimes: std::sync::Mutex::new(Vec::new()),
                 skills_service,
@@ -632,8 +701,11 @@ impl ThreadManager {
                 threads: Arc::new(RwLock::new(HashMap::new())),
                 thread_created_tx,
                 thread_id_generator: default_thread_id_generator(),
-                models_manager: create_model_provider(provider, Some(auth_manager.clone()))
-                    .models_manager(codex_home, /*config_model_catalog*/ None),
+                models_managers: ModelsManagerRegistry::from_default(
+                    OPENAI_PROVIDER_ID,
+                    create_model_provider(provider, Some(auth_manager.clone()))
+                        .models_manager(codex_home, /*config_model_catalog*/ None),
+                ),
                 environment_manager,
                 starting_mcp_runtimes: std::sync::Mutex::new(Vec::new()),
                 skills_service,
@@ -795,7 +867,22 @@ impl ThreadManager {
     }
 
     pub fn get_models_manager(&self) -> SharedModelsManager {
-        self.state.models_manager.clone()
+        self.state.models_managers.default_manager()
+    }
+
+    pub fn get_models_manager_for_provider(
+        &self,
+        provider_id: &str,
+    ) -> CodexResult<SharedModelsManager> {
+        self.state.models_managers.get(provider_id).ok_or_else(|| {
+            CodexErr::InvalidRequest(format!(
+                "Model provider `{provider_id}` does not have a registered models manager"
+            ))
+        })
+    }
+
+    pub fn get_models_managers(&self) -> Vec<SharedModelsManager> {
+        self.state.models_managers.all()
     }
 
     pub async fn list_models(
@@ -804,13 +891,29 @@ impl ThreadManager {
         http_client_factory: codex_http_client::HttpClientFactory,
     ) -> Vec<ModelPreset> {
         self.state
-            .models_manager
+            .models_managers
+            .default_manager()
             .list_models(refresh_strategy, http_client_factory)
             .await
     }
 
+    pub async fn list_models_for_provider(
+        &self,
+        provider_id: &str,
+        refresh_strategy: RefreshStrategy,
+        http_client_factory: codex_http_client::HttpClientFactory,
+    ) -> CodexResult<Vec<ModelPreset>> {
+        Ok(self
+            .get_models_manager_for_provider(provider_id)?
+            .list_models(refresh_strategy, http_client_factory)
+            .await)
+    }
+
     pub fn list_collaboration_modes(&self) -> Vec<CollaborationModeMask> {
-        self.state.models_manager.list_collaboration_modes()
+        self.state
+            .models_managers
+            .default_manager()
+            .list_collaboration_modes()
     }
 
     pub async fn list_thread_ids(&self) -> Vec<ThreadId> {
@@ -1987,13 +2090,22 @@ impl ThreadManagerState {
         } else {
             codex_sandboxing::WindowsSandboxProxySettingsMode::Reconcile
         };
+        let models_manager = self
+            .models_managers
+            .get(&config.model_provider_id)
+            .ok_or_else(|| {
+                CodexErr::InvalidRequest(format!(
+                    "Model provider `{}` does not have a registered models manager",
+                    config.model_provider_id
+                ))
+            })?;
         let (session, io) = Box::pin(Session::spawn(SessionSpawnArgs {
             config,
             allow_provider_model_fallback,
             user_instructions,
             installation_id: self.installation_id.clone(),
             auth_manager,
-            models_manager: Arc::clone(&self.models_manager),
+            models_manager,
             environment_manager: Arc::clone(&self.environment_manager),
             skills_service: Arc::clone(&self.skills_service),
             plugins_manager: Arc::clone(&self.plugins_manager),

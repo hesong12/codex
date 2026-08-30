@@ -134,7 +134,7 @@ fn reject_removed_permission_profile(request: &JSONRPCRequest) -> Result<(), JSO
 
 pub(crate) struct MessageProcessor {
     outgoing: Arc<OutgoingMessageSender>,
-    models_refresh_worker: ModelsRefreshWorker,
+    models_refresh_workers: Vec<ModelsRefreshWorker>,
     turn_cost_worker: Option<TurnCostWorker>,
     skills_watcher: Arc<SkillsWatcher>,
     account_processor: AccountRequestProcessor,
@@ -318,10 +318,10 @@ impl MessageProcessor {
                     Arc::clone(&extension_event_sink),
                 ))
             });
-            let manager = ThreadManager::new(
+            let manager = ThreadManager::new_with_models_manager_registry(
                 config.as_ref(),
                 auth_manager.clone(),
-                codex_core::build_models_manager(config.as_ref(), auth_manager.clone()),
+                codex_core::build_models_manager_registry(config.as_ref(), auth_manager.clone()),
                 codex_core::CodexAppsToolsCache::default(),
                 session_source,
                 environment_manager,
@@ -362,9 +362,13 @@ impl MessageProcessor {
                 None => manager,
             }
         });
-        let models_manager = thread_manager.get_models_manager();
-        let models_refresh_worker =
-            crate::models_refresh_worker::spawn(&models_manager, config.http_client_factory());
+        let models_refresh_workers = thread_manager
+            .get_models_managers()
+            .into_iter()
+            .map(|models_manager| {
+                crate::models_refresh_worker::spawn(&models_manager, config.http_client_factory())
+            })
+            .collect();
         let turn_cost_worker =
             TurnCostWorker::spawn(Arc::clone(&config), Arc::clone(&auth_manager));
         thread_manager
@@ -556,7 +560,7 @@ impl MessageProcessor {
 
         Self {
             outgoing,
-            models_refresh_worker,
+            models_refresh_workers,
             turn_cost_worker,
             skills_watcher,
             account_processor,
@@ -589,7 +593,9 @@ impl MessageProcessor {
     pub(crate) fn clear_runtime_references(&self) {
         self.account_processor.clear_external_auth();
         self.apps_processor.shutdown();
-        self.models_refresh_worker.shutdown();
+        for worker in &self.models_refresh_workers {
+            worker.shutdown();
+        }
         self.skills_watcher.shutdown();
     }
 
@@ -766,7 +772,9 @@ impl MessageProcessor {
     }
 
     pub(crate) async fn drain_background_tasks(&self) {
-        self.models_refresh_worker.shutdown();
+        for worker in &self.models_refresh_workers {
+            worker.shutdown();
+        }
         if let Some(worker) = &self.turn_cost_worker {
             worker.shutdown();
         }

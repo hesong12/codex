@@ -543,6 +543,7 @@ impl AppServerSession {
                     .request_typed::<ModelListResponse>(ClientRequest::ModelList {
                         request_id: model_request_id,
                         params: ModelListParams {
+                            model_provider: None,
                             cursor: None,
                             limit: None,
                             include_hidden: Some(true),

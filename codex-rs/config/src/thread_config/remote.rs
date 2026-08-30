@@ -173,6 +173,7 @@ fn model_provider_from_proto(
     let info = ModelProviderInfo {
         name: provider.name,
         base_url: provider.base_url,
+        model_catalog_json: None,
         env_key: provider.env_key,
         env_key_instructions: provider.env_key_instructions,
         experimental_bearer_token: provider.experimental_bearer_token.map(Into::into),
@@ -204,6 +205,7 @@ fn model_provider_to_proto(
     let ModelProviderInfo {
         name,
         base_url,
+        model_catalog_json: _,
         env_key,
         env_key_instructions,
         experimental_bearer_token,
