@@ -13,7 +13,6 @@ use codex_shell_command::shell_detect::ShellType;
 use codex_shell_command::shell_snapshot::snapshot_state_and_environment_script;
 use codex_utils_path_uri::PathUri;
 use tokio::io::AsyncReadExt;
-use tokio::process::Command;
 use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
 use tokio::time::Instant;
@@ -224,7 +223,10 @@ async fn capture_snapshot(
         .split_first()
         .ok_or_else(|| internal_error("missing shell snapshot command".to_string()))?;
 
-    let mut command = Command::new(program);
+    let mut command = codex_utils_pty::host_secret_guard::model_child_tokio_command(program)
+        .map_err(|err| internal_error(format!("cannot guard shell snapshot: {err}")))?;
+    codex_utils_pty::host_secret_guard::apply_inherited_handle_allowlist(&mut command, &[])
+        .map_err(|err| internal_error(format!("cannot guard shell snapshot: {err}")))?;
     command
         .args(args)
         .current_dir(prepared.cwd.as_path())

@@ -3203,6 +3203,29 @@
       },
       "type": "object"
     },
+    "HostSecretGuardAttestation": {
+      "properties": {
+        "backend": {
+          "type": "string"
+        },
+        "enforced": {
+          "type": "boolean"
+        },
+        "inheritedHandlePolicy": {
+          "type": "string"
+        },
+        "requested": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "backend",
+        "enforced",
+        "inheritedHandlePolicy",
+        "requested"
+      ],
+      "type": "object"
+    },
     "InitializeCapabilities": {
       "description": "Client-declared capabilities negotiated during initialize.",
       "properties": {
@@ -3275,6 +3298,14 @@
           ],
           "description": "Absolute path to the server's $CODEX_HOME directory."
         },
+        "hostSecretGuard": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/HostSecretGuardAttestation"
+            }
+          ],
+          "description": "Runtime evidence for the host-requested model-child isolation boundary."
+        },
         "platformFamily": {
           "description": "Platform family for the running app-server target, for example `\"unix\"` or `\"windows\"`.",
           "type": "string"
@@ -3289,6 +3320,7 @@
       },
       "required": [
         "codexHome",
+        "hostSecretGuard",
         "platformFamily",
         "platformOs",
         "userAgent"

@@ -1,3 +1,4 @@
+pub mod host_secret_guard;
 pub mod pipe;
 mod process;
 pub mod process_group;

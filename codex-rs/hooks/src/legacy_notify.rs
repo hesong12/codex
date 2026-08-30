@@ -51,8 +51,9 @@ pub(crate) fn notify_hook(argv: Vec<String>, environment: Arc<Vec<(OsString, OsS
             let environment = Arc::clone(&environment);
             Box::pin(async move {
                 let mut command = match command_from_argv(&argv, environment.iter().cloned()) {
-                    Some(command) => command,
-                    None => return HookResult::Success,
+                    Ok(Some(command)) => command,
+                    Ok(None) => return HookResult::Success,
+                    Err(err) => return HookResult::FailedContinue(err.into()),
                 };
                 if let Ok(notify_payload) = legacy_notify_json(payload) {
                     command.arg(notify_payload);
@@ -163,6 +164,7 @@ mod tests {
         ];
 
         let command = command_from_argv(&argv, environment)
+            .expect("legacy notification command should build")
             .expect("legacy notification command should be configured");
         let configured_environment = command
             .as_std()

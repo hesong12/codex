@@ -70,6 +70,13 @@ impl InitializeRequestProcessor {
         let capabilities = params.capabilities.unwrap_or_default();
         let experimental_api_enabled = capabilities.experimental_api;
         let request_attestation = capabilities.request_attestation;
+        let host_secret_guard = codex_utils_pty::host_secret_guard::host_secret_guard_attestation();
+        if host_secret_guard.requested && !host_secret_guard.enforced {
+            return Err(invalid_request(format!(
+                "host secret guard was required but backend `{}` cannot enforce it",
+                host_secret_guard.backend
+            )));
+        }
         let extensions = capabilities.extensions.as_ref();
         let client_mcp_extensions = codex_mcp::client_mcp_extensions(
             extensions,
@@ -144,6 +151,12 @@ impl InitializeRequestProcessor {
             codex_home,
             platform_family: std::env::consts::FAMILY.to_string(),
             platform_os: std::env::consts::OS.to_string(),
+            host_secret_guard: codex_app_server_protocol::HostSecretGuardAttestation {
+                requested: host_secret_guard.requested,
+                enforced: host_secret_guard.enforced,
+                backend: host_secret_guard.backend.to_string(),
+                inherited_handle_policy: host_secret_guard.inherited_handle_policy.to_string(),
+            },
         };
 
         self.outgoing

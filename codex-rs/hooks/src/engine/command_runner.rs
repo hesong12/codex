@@ -213,7 +213,22 @@ pub(crate) async fn run_command(
     let started_at = chrono::Utc::now().timestamp();
     let started = Instant::now();
 
-    let mut command = build_command(&runtime.shell, command, &runtime.environment, env);
+    let mut command = match build_command(&runtime.shell, command, &runtime.environment, env) {
+        Ok(command) => command,
+        Err(err) => {
+            return finish_command_run(
+                started_at,
+                started,
+                CommandRunCompletion {
+                    exit_code: None,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    error: Some(err.to_string()),
+                    outcome: "spawn_error",
+                },
+            );
+        }
+    };
     command
         .current_dir(cwd)
         .stdin(Stdio::piped())
@@ -392,11 +407,11 @@ fn build_command(
     command_line: &str,
     environment: &[(OsString, OsString)],
     env: &HashMap<String, String>,
-) -> Command {
+) -> std::io::Result<Command> {
     let mut command = if shell.program.is_empty() {
-        default_shell_command(environment)
+        default_shell_command(environment)?
     } else {
-        Command::new(&shell.program)
+        codex_utils_pty::host_secret_guard::model_child_tokio_command(&shell.program)?
     };
     if shell.program.is_empty() {
         #[cfg(windows)]
@@ -422,10 +437,11 @@ fn build_command(
     command.envs(environment.iter().cloned());
     command.envs(env);
     scrub_non_inheritable_env_vars(command.as_std_mut());
-    command
+    codex_utils_pty::host_secret_guard::apply_inherited_handle_allowlist(&mut command, &[])?;
+    Ok(command)
 }
 
-fn default_shell_command(environment: &[(OsString, OsString)]) -> Command {
+fn default_shell_command(environment: &[(OsString, OsString)]) -> std::io::Result<Command> {
     #[cfg(windows)]
     let (environment_variable, fallback_program, argument) = ("COMSPEC", "cmd.exe", "/C");
 
@@ -449,9 +465,9 @@ fn default_shell_command(environment: &[(OsString, OsString)]) -> Command {
         .map(|(_, value)| value.clone())
         .unwrap_or_else(|| OsString::from(fallback_program));
 
-    let mut command = Command::new(program);
+    let mut command = codex_utils_pty::host_secret_guard::model_child_tokio_command(program)?;
     command.arg(argument);
-    command
+    Ok(command)
 }
 
 #[cfg(test)]

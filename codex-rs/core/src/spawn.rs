@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::Child;
-use tokio::process::Command;
 use tracing::trace;
 
 use codex_protocol::permissions::NetworkSandboxPolicy;
@@ -67,7 +66,7 @@ pub(crate) async fn spawn_child_async(request: SpawnChildRequest<'_>) -> std::io
         "spawn_child_async: {program:?} {args:?} {arg0:?} {cwd:?} {network_sandbox_policy:?} {stdio_policy:?} {env:?}"
     );
 
-    let mut cmd = Command::new(&program);
+    let mut cmd = codex_utils_pty::host_secret_guard::model_child_tokio_command(&program)?;
     #[cfg(unix)]
     cmd.arg0(arg0.map_or_else(|| program.to_string_lossy().to_string(), String::from));
     cmd.args(args);
@@ -80,6 +79,12 @@ pub(crate) async fn spawn_child_async(request: SpawnChildRequest<'_>) -> std::io
     let inherited_fd = env
         .get(codex_shell_escalation::ESCALATE_SOCKET_ENV_VAR)
         .and_then(|fd| fd.parse().ok());
+    #[cfg(not(target_os = "macos"))]
+    let inherited_fd: Option<i32> = None;
+    codex_utils_pty::host_secret_guard::apply_inherited_handle_allowlist(
+        &mut cmd,
+        inherited_fd.as_slice(),
+    )?;
     cmd.env_clear();
     cmd.envs(env);
 
@@ -108,9 +113,6 @@ pub(crate) async fn spawn_child_async(request: SpawnChildRequest<'_>) -> std::io
                 // current parent dies."
                 codex_utils_pty::process_group::set_parent_death_signal(parent_pid)?;
             }
-            // macOS cannot receive the fd with close-on-exec set atomically.
-            #[cfg(target_os = "macos")]
-            codex_utils_pty::pty::close_inherited_fds_except(inherited_fd.as_slice());
             Ok(())
         });
     }

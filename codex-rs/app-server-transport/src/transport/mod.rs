@@ -374,6 +374,7 @@ mod tests {
                     codex_home,
                     platform_family: "unix".to_string(),
                     platform_os: "linux".to_string(),
+                    host_secret_guard: Default::default(),
                 },
             )),
         });

@@ -1323,6 +1323,54 @@ async fn pty_terminate_kills_background_children_in_same_process_group() -> anyh
 
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn model_child_spawns_close_unlisted_inheritable_fds() -> anyhow::Result<()> {
+    use std::os::fd::AsRawFd;
+    use std::os::fd::FromRawFd;
+
+    let mut fds = [0; 2];
+    let result = unsafe { libc::pipe(fds.as_mut_ptr()) };
+    if result != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    let read_end = unsafe { std::fs::File::from_raw_fd(fds[0]) };
+    let write_end = unsafe { std::fs::File::from_raw_fd(fds[1]) };
+    let mut env_map: HashMap<String, String> = std::env::vars().collect();
+    env_map.insert("UNLISTED_FD".to_string(), write_end.as_raw_fd().to_string());
+    let script = "test ! -e \"/dev/fd/$UNLISTED_FD\"";
+
+    let pty = spawn_pty_process(
+        "/bin/sh",
+        &["-c".to_string(), script.to_string()],
+        Path::new("."),
+        &env_map,
+        &None,
+        TerminalSize::default(),
+        &[],
+    )
+    .await?;
+    let (_session, output_rx, exit_rx) = combine_spawned_output(pty);
+    let (_, pty_code) = collect_output_until_exit(output_rx, exit_rx, /*timeout_ms*/ 2_000).await;
+
+    let pipe = spawn_pipe_process_no_stdin(
+        "/bin/sh",
+        &["-c".to_string(), script.to_string()],
+        Path::new("."),
+        &env_map,
+        &None,
+        &[],
+    )
+    .await?;
+    let (_session, output_rx, exit_rx) = combine_spawned_output(pipe);
+    let (_, pipe_code) = collect_output_until_exit(output_rx, exit_rx, /*timeout_ms*/ 2_000).await;
+
+    assert_eq!((pty_code, pipe_code), (0, 0));
+    drop(read_end);
+    drop(write_end);
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pty_spawn_can_preserve_inherited_fds() -> anyhow::Result<()> {
     use std::io::Read;
     use std::os::fd::AsRawFd;

@@ -77,6 +77,28 @@ pub struct InitializeResponse {
     /// Operating system for the running app-server target, for example
     /// `"macos"`, `"linux"`, or `"windows"`.
     pub platform_os: String,
+    /// Runtime evidence for the host-requested model-child isolation boundary.
+    pub host_secret_guard: HostSecretGuardAttestation,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HostSecretGuardAttestation {
+    pub requested: bool,
+    pub enforced: bool,
+    pub backend: String,
+    pub inherited_handle_policy: String,
+}
+
+impl Default for HostSecretGuardAttestation {
+    fn default() -> Self {
+        Self {
+            requested: false,
+            enforced: false,
+            backend: "disabled".to_string(),
+            inherited_handle_policy: "platform-default".to_string(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

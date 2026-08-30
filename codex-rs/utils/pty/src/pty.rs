@@ -12,8 +12,6 @@ use std::os::fd::RawFd;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 #[cfg(unix)]
-use std::process::Command as StdCommand;
-#[cfg(unix)]
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
@@ -142,7 +140,7 @@ pub async fn spawn_process(
     let _ = inherited_fds;
 
     #[cfg(unix)]
-    if !inherited_fds.is_empty() {
+    if !inherited_fds.is_empty() || crate::host_secret_guard::host_secret_guard_required() {
         return spawn_process_preserving_fds(program, args, cwd, env, arg0, size, inherited_fds)
             .await;
     }
@@ -299,7 +297,7 @@ async fn spawn_process_preserving_fds(
 ) -> Result<SpawnedProcess> {
     let (master, slave) = open_unix_pty(size)?;
     let io = crate::unix_io::PtyIo::new(master.as_raw_fd())?;
-    let mut command = StdCommand::new(program);
+    let mut command = crate::host_secret_guard::model_child_std_command(program)?;
     if let Some(arg0) = arg0 {
         command.arg0(arg0);
     }
@@ -532,7 +530,7 @@ pub fn close_inherited_fds_except(preserved_fds: &[RawFd]) {
 
 // Other Unix platforms keep their existing fd cleanup.
 #[cfg(all(unix, not(target_os = "macos")))]
-pub(crate) fn close_inherited_fds_except(preserved_fds: &[RawFd]) {
+pub fn close_inherited_fds_except(preserved_fds: &[RawFd]) {
     if let Ok(dir) = std::fs::read_dir("/dev/fd") {
         let mut fds = Vec::new();
         for entry in dir {

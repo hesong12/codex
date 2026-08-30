@@ -25,7 +25,6 @@ use tokio::io::AsyncBufReadExt;
 #[cfg(any(windows, test))]
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
 
 use crate::ExecServerRuntimePaths;
 use crate::FileSystemSandboxContext;
@@ -454,7 +453,10 @@ pub(crate) fn spawn_command(
     let Some((program, args)) = argv.split_first() else {
         return Err(invalid_request("fs sandbox command was empty".to_string()));
     };
-    let mut command = Command::new(program);
+    let mut command =
+        codex_utils_pty::host_secret_guard::model_child_tokio_command(program).map_err(io_error)?;
+    codex_utils_pty::host_secret_guard::apply_inherited_handle_allowlist(&mut command, &[])
+        .map_err(io_error)?;
     #[cfg(unix)]
     if let Some(arg0) = arg0 {
         command.arg0(arg0);
@@ -472,15 +474,6 @@ pub(crate) fn spawn_command(
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
     command.kill_on_drop(true);
-    // macOS cannot receive passed fds with close-on-exec set atomically.
-    #[cfg(target_os = "macos")]
-    // SAFETY: Descriptor cleanup only uses fork-safe system calls.
-    unsafe {
-        command.pre_exec(|| {
-            codex_utils_pty::pty::close_inherited_fds_except(&[]);
-            Ok(())
-        });
-    }
     command.spawn().map_err(io_error)
 }
 

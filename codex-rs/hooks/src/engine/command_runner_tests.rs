@@ -207,7 +207,8 @@ fn build_command_replays_snapshot_before_hook_overrides_and_scrubbing() {
         "echo hook-ran",
         &environment,
         &env,
-    );
+    )
+    .expect("build command");
 
     assert_eq!(
         configured_environment_value(&command, "CODEX_HOOK_SNAPSHOT"),
@@ -246,7 +247,8 @@ fn fallback_shell_uses_snapshot() {
         "echo hook-ran",
         &[(OsString::from(name), OsString::from(program))],
         &HashMap::new(),
-    );
+    )
+    .expect("build command");
 
     assert_eq!(command.as_std().get_program(), OsStr::new(program));
     #[cfg(not(windows))]

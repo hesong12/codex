@@ -34,7 +34,6 @@ use serde::de::MapAccess;
 use serde::de::Visitor;
 use tokio::io::AsyncReadExt;
 use tokio::process::Child;
-use tokio::process::Command;
 use tokio::time::Instant;
 use url::Origin;
 use url::Url;
@@ -439,7 +438,8 @@ async fn run_helper(command: &str, cwd: &Path) -> Result<HeaderMap> {
     // Match the repository's existing shell-command convention. The command is ordinary
     // configuration and may be visible in local process metadata; credentials belong in the
     // JSON output rather than in the command text.
-    let mut process = Command::new(shell);
+    let mut process = codex_utils_pty::host_secret_guard::model_child_tokio_command(shell)?;
+    codex_utils_pty::host_secret_guard::apply_inherited_handle_allowlist(&mut process, &[])?;
     #[cfg(windows)]
     {
         process.args(["/Q", "/D", "/C"]);

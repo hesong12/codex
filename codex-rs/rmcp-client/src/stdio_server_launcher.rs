@@ -277,8 +277,9 @@ impl LocalStdioServerLauncher {
         let resolved_program =
             program_resolver::resolve(program, &envs, &cwd).map_err(io::Error::other)?;
 
-        let build_command = || {
-            let mut command = Command::new(&resolved_program);
+        let build_command = || -> io::Result<Command> {
+            let mut command =
+                codex_utils_pty::host_secret_guard::model_child_tokio_command(&resolved_program)?;
             command
                 .kill_on_drop(true)
                 .stdin(Stdio::piped())
@@ -289,12 +290,16 @@ impl LocalStdioServerLauncher {
                 .args(&args);
             #[cfg(unix)]
             command.process_group(0);
-            command
+            codex_utils_pty::host_secret_guard::apply_inherited_handle_allowlist(
+                &mut command,
+                &[],
+            )?;
+            Ok(command)
         };
         #[cfg(windows)]
-        let mut command = build_command();
+        let mut command = build_command()?;
         #[cfg(not(windows))]
-        let command = build_command();
+        let command = build_command()?;
         #[cfg(windows)]
         let job = match codex_utils_pty::JobObject::create_without_breakaway() {
             Ok(job) => {
@@ -352,7 +357,7 @@ impl LocalStdioServerLauncher {
                     drop(stderr);
                     drop(transport);
                     drop(job);
-                    let (transport, stderr, process_id) = spawn_transport(build_command())?;
+                    let (transport, stderr, process_id) = spawn_transport(build_command()?)?;
                     (transport, stderr, process_id, None)
                 }
             },

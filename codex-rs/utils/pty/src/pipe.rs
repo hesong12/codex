@@ -12,7 +12,6 @@ use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
-use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -146,7 +145,8 @@ async fn spawn_process_with_stdin_mode(
     #[cfg(not(unix))]
     let _ = inherited_fds;
 
-    let mut command = Command::new(program);
+    let mut command = crate::host_secret_guard::model_child_tokio_command(program)?;
+    crate::host_secret_guard::apply_inherited_handle_allowlist(&mut command, inherited_fds)?;
     #[cfg(unix)]
     if let Some(arg0) = arg0 {
         command.arg0(arg0);

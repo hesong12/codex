@@ -309,15 +309,18 @@ pub fn list_hooks(config: HooksConfig) -> HookListOutcome {
 pub(crate) fn command_from_argv(
     argv: &[String],
     environment: impl IntoIterator<Item = (OsString, OsString)>,
-) -> Option<Command> {
-    let (program, args) = argv.split_first()?;
+) -> std::io::Result<Option<Command>> {
+    let Some((program, args)) = argv.split_first() else {
+        return Ok(None);
+    };
     if program.is_empty() {
-        return None;
+        return Ok(None);
     }
-    let mut command = Command::new(program);
+    let mut command = codex_utils_pty::host_secret_guard::model_child_tokio_command(program)?;
     command.args(args);
     command.env_clear();
     command.envs(environment);
     scrub_non_inheritable_env_vars(command.as_std_mut());
-    Some(command)
+    codex_utils_pty::host_secret_guard::apply_inherited_handle_allowlist(&mut command, &[])?;
+    Ok(Some(command))
 }

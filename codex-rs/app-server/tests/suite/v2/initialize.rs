@@ -26,6 +26,71 @@ use tokio::time::timeout;
 
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn initialize_attests_required_macos_host_secret_guard() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    let mut app_server = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .with_env_overrides(&[("CODEX_HOST_SECRET_GUARD", Some("required"))])
+        .build()
+        .await?;
+
+    let message = app_server
+        .initialize_with_client_info(ClientInfo {
+            name: "host_guard_test".to_string(),
+            title: None,
+            version: "0.1.0".to_string(),
+        })
+        .await?;
+    let JSONRPCMessage::Response(response) = message else {
+        anyhow::bail!("expected initialize response, got {message:?}");
+    };
+    let response = to_response::<InitializeResponse>(response)?;
+    assert!(response.host_secret_guard.requested);
+    assert!(response.host_secret_guard.enforced);
+    assert_eq!(
+        response.host_secret_guard.backend,
+        "macos-seatbelt-process-isolation"
+    );
+    assert_eq!(
+        response.host_secret_guard.inherited_handle_policy,
+        "explicit-fd-allowlist"
+    );
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+#[tokio::test]
+async fn initialize_rejects_required_windows_guard_until_backend_exists() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    let mut app_server = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .with_env_overrides(&[("CODEX_HOST_SECRET_GUARD", Some("required"))])
+        .build()
+        .await?;
+
+    let message = app_server
+        .initialize_with_client_info(ClientInfo {
+            name: "host_guard_test".to_string(),
+            title: None,
+            version: "0.1.0".to_string(),
+        })
+        .await?;
+    let JSONRPCMessage::Error(error) = message else {
+        anyhow::bail!("expected initialize error, got {message:?}");
+    };
+    assert!(
+        error
+            .error
+            .message
+            .contains("windows-full-access-unavailable")
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn initialize_uses_client_info_name_as_originator() -> Result<()> {
     let responses = Vec::new();
@@ -59,12 +124,14 @@ async fn initialize_uses_client_info_name_as_originator() -> Result<()> {
         codex_home: response_codex_home,
         platform_family,
         platform_os,
+        host_secret_guard,
     } = to_response::<InitializeResponse>(response)?;
 
     assert!(user_agent.starts_with("codex_vscode/"));
     assert_eq!(response_codex_home, expected_codex_home);
     assert_eq!(platform_family, std::env::consts::FAMILY);
     assert_eq!(platform_os, std::env::consts::OS);
+    assert!(!host_secret_guard.requested);
     Ok(())
 }
 
@@ -171,12 +238,14 @@ async fn initialize_respects_originator_override_env_var() -> Result<()> {
         codex_home: response_codex_home,
         platform_family,
         platform_os,
+        host_secret_guard,
     } = to_response::<InitializeResponse>(response)?;
 
     assert!(user_agent.starts_with("codex_originator_via_env_var/"));
     assert_eq!(response_codex_home, expected_codex_home);
     assert_eq!(platform_family, std::env::consts::FAMILY);
     assert_eq!(platform_os, std::env::consts::OS);
+    assert!(!host_secret_guard.requested);
     Ok(())
 }
 

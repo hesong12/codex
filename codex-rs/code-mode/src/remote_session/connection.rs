@@ -34,7 +34,6 @@ use tokio::io::BufReader;
 use tokio::process::Child;
 use tokio::process::ChildStdin;
 use tokio::process::ChildStdout;
-use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -154,7 +153,18 @@ impl Drop for CallerCancellation {
 
 impl Connection {
     pub(super) async fn spawn(host_program: &Path) -> Result<Self, ConnectionError> {
-        let mut command = Command::new(host_program);
+        let mut command = codex_utils_pty::host_secret_guard::model_child_tokio_command(
+            host_program,
+        )
+        .map_err(|error| ConnectionError::Spawn {
+            host_program: host_program.to_path_buf(),
+            error,
+        })?;
+        codex_utils_pty::host_secret_guard::apply_inherited_handle_allowlist(&mut command, &[])
+            .map_err(|error| ConnectionError::Spawn {
+                host_program: host_program.to_path_buf(),
+                error,
+            })?;
         #[cfg(unix)]
         command.process_group(0);
         command

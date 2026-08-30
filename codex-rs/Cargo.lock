@@ -2574,6 +2574,7 @@ dependencies = [
  "codex-install-context",
  "codex-otel",
  "codex-protocol",
+ "codex-utils-pty",
  "futures",
  "http-body-util",
  "pretty_assertions",

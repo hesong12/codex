@@ -21,7 +21,6 @@ use codex_shell_command::shell_snapshot::snapshot_script;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::PathUri;
 use tokio::fs;
-use tokio::process::Command;
 use tokio::time::timeout;
 use tracing::Instrument;
 use tracing::info_span;
@@ -284,7 +283,8 @@ async fn run_script_with_timeout(
 
     // Handler is kept as guard to control the drop. The `mut` pattern is required because .args()
     // returns a ref of handler.
-    let mut handler = Command::new(&args[0]);
+    let mut handler = codex_utils_pty::host_secret_guard::model_child_tokio_command(&args[0])?;
+    codex_utils_pty::host_secret_guard::apply_inherited_handle_allowlist(&mut handler, &[])?;
     codex_protocol::shell_environment::scrub_non_inheritable_env_vars(handler.as_std_mut());
     handler.args(&args[1..]);
     handler.stdin(Stdio::null());
