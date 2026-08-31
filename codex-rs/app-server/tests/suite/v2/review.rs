@@ -64,6 +64,7 @@ async fn review_start_rejects_detached_delivery_for_paginated_parent() -> Result
         .send_review_start_request(ReviewStartParams {
             thread_id: thread.id,
             delivery: Some(ReviewDelivery::Detached),
+            inference_work_scope: None,
             target: ReviewTarget::Custom {
                 instructions: "detached review".to_string(),
             },
@@ -122,6 +123,7 @@ async fn review_start_runs_review_turn_and_emits_code_review_item() -> Result<()
             params: ReviewStartParams {
                 thread_id: thread_id.clone(),
                 delivery: Some(ReviewDelivery::Inline),
+                inference_work_scope: None,
                 target: ReviewTarget::Commit {
                     sha: "1234567deadbeef".to_string(),
                     title: Some("Tidy UI colors".to_string()),
@@ -227,6 +229,7 @@ async fn review_start_exec_approval_item_id_matches_command_execution_item() -> 
             params: ReviewStartParams {
                 thread_id,
                 delivery: Some(ReviewDelivery::Inline),
+                inference_work_scope: None,
                 target: ReviewTarget::Commit {
                     sha: "1234567deadbeef".to_string(),
                     title: Some("Check review approvals".to_string()),
@@ -301,6 +304,7 @@ async fn review_start_rejects_empty_base_branch() -> Result<()> {
         .send_review_start_request(ReviewStartParams {
             thread_id,
             delivery: Some(ReviewDelivery::Inline),
+            inference_work_scope: None,
             target: ReviewTarget::BaseBranch {
                 branch: "   ".to_string(),
             },
@@ -388,6 +392,7 @@ async fn review_start_with_detached_delivery_returns_new_thread_id() -> Result<(
             params: ReviewStartParams {
                 thread_id: thread_id.clone(),
                 delivery: Some(ReviewDelivery::Detached),
+                inference_work_scope: None,
                 target: ReviewTarget::Custom {
                     instructions: "detached review".to_string(),
                 },
@@ -478,6 +483,7 @@ async fn review_start_rejects_empty_commit_sha() -> Result<()> {
         .send_review_start_request(ReviewStartParams {
             thread_id,
             delivery: Some(ReviewDelivery::Inline),
+            inference_work_scope: None,
             target: ReviewTarget::Commit {
                 sha: "\t".to_string(),
                 title: None,
@@ -515,6 +521,7 @@ async fn review_start_rejects_empty_custom_instructions() -> Result<()> {
         .send_review_start_request(ReviewStartParams {
             thread_id,
             delivery: Some(ReviewDelivery::Inline),
+            inference_work_scope: None,
             target: ReviewTarget::Custom {
                 instructions: "\n\n".to_string(),
             },

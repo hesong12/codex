@@ -243,9 +243,15 @@ pub async fn reload_user_config(sess: &Arc<Session>) {
     sess.reload_user_config_layer().await;
 }
 
-pub async fn compact(sess: &Arc<Session>, sub_id: String) {
+pub async fn compact(sess: &Arc<Session>, sub_id: String, inference_work_scope: Option<String>) {
     let turn_context = sess
-        .new_turn_with_default_settings(sub_id, Default::default())
+        .new_turn_with_default_settings(
+            sub_id,
+            crate::session::turn_context::NewTurnContextOptions {
+                inference_work_scope,
+                ..Default::default()
+            },
+        )
         .await;
 
     sess.spawn_task(turn_context, Vec::new(), CompactTask).await;
@@ -495,9 +501,16 @@ pub async fn review(
     config: &Arc<Config>,
     sub_id: String,
     review_request: ReviewRequest,
+    inference_work_scope: Option<String>,
 ) {
     let turn_context = sess
-        .new_turn_with_default_settings(sub_id.clone(), Default::default())
+        .new_turn_with_default_settings(
+            sub_id.clone(),
+            crate::session::turn_context::NewTurnContextOptions {
+                inference_work_scope,
+                ..Default::default()
+            },
+        )
         .await;
     sess.maybe_emit_model_warnings_for_turn(turn_context.as_ref())
         .await;
@@ -674,7 +687,13 @@ pub(super) async fn submission_loop(
                     false
                 }
                 Op::Compact => {
-                    compact(&sess, sub.id.clone()).await;
+                    compact(&sess, sub.id.clone(), None).await;
+                    false
+                }
+                Op::CompactWithScope {
+                    inference_work_scope,
+                } => {
+                    compact(&sess, sub.id.clone(), Some(inference_work_scope)).await;
                     false
                 }
                 Op::ThreadRollback { num_turns } => {
@@ -705,7 +724,21 @@ pub(super) async fn submission_loop(
                 }
                 Op::Shutdown => shutdown(&sess, sub.id.clone()).await,
                 Op::Review { review_request } => {
-                    review(&sess, &config, sub.id.clone(), review_request).await;
+                    review(&sess, &config, sub.id.clone(), review_request, None).await;
+                    false
+                }
+                Op::ReviewWithScope {
+                    review_request,
+                    inference_work_scope,
+                } => {
+                    review(
+                        &sess,
+                        &config,
+                        sub.id.clone(),
+                        review_request,
+                        Some(inference_work_scope),
+                    )
+                    .await;
                     false
                 }
                 Op::ApproveGuardianDeniedAction { event } => {

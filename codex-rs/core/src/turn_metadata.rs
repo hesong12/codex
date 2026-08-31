@@ -86,6 +86,7 @@ pub async fn detached_memory_responses_metadata(
     cwd: &AbsolutePathBuf,
     permission_profile: &PermissionProfile,
     sandbox: Option<&str>,
+    inference_work_scope: Option<&str>,
 ) -> CodexResponsesMetadata {
     CodexResponsesMetadata {
         request_kind: Some(CodexResponsesRequestKind::Memory),
@@ -95,6 +96,7 @@ pub async fn detached_memory_responses_metadata(
         sandbox_mode: Some(
             permission_profile_policy_tag(permission_profile, cwd.as_path()).to_string(),
         ),
+        inference_work_scope: inference_work_scope.map(ToString::to_string),
         workspaces: memory_workspaces(cwd).await,
         ..CodexResponsesMetadata::new(installation_id, session_id, thread_id, window_id)
     }
@@ -112,6 +114,7 @@ pub(crate) struct TurnMetadataState {
     parent_turn_id: OnceLock<String>,
     initiating_agent_path: OnceLock<AgentPath>,
     root_turn_id: OnceLock<String>,
+    inference_work_scope: OnceLock<String>,
     subagent_header: Option<String>,
     subagent_kind: Option<String>,
     thread_source: Option<ThreadSource>,
@@ -184,6 +187,7 @@ impl TurnMetadataState {
             parent_turn_id: OnceLock::new(),
             initiating_agent_path: OnceLock::new(),
             root_turn_id: OnceLock::new(),
+            inference_work_scope: OnceLock::new(),
             subagent_header: subagent_header_value(session_source),
             subagent_kind: subagent_metadata_kind(session_source),
             thread_source,
@@ -310,6 +314,14 @@ impl TurnMetadataState {
         let _ = self.turn_trigger.set(turn_trigger);
     }
 
+    pub(crate) fn turn_trigger(&self) -> Option<&str> {
+        self.turn_trigger.get().map(String::as_str)
+    }
+
+    pub(crate) fn set_inference_work_scope(&self, scope_id: String) {
+        let _ = self.inference_work_scope.set(scope_id);
+    }
+
     pub(crate) fn root_turn_id(&self) -> Option<String> {
         self.root_turn_id
             .get()
@@ -404,6 +416,7 @@ impl TurnMetadataState {
             parent_thread_id: self.parent_thread_id,
             parent_turn_id: self.parent_turn_id.get().cloned(),
             root_turn_id: self.root_turn_id(),
+            inference_work_scope: self.inference_work_scope.get().cloned(),
             subagent_header: self.subagent_header.clone(),
             subagent_kind: self.subagent_kind.clone(),
             thread_source: self.thread_source.clone(),

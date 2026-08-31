@@ -666,6 +666,7 @@ async fn turn_start_jsonrpc_span_parents_core_turn_spans() -> Result<()> {
                     turn_trigger: None,
                     tool_output: None,
                     responsesapi_client_metadata: None,
+                    inference_work_scope: None,
                     additional_context: None,
                     cwd: None,
                     runtime_workspace_roots: None,

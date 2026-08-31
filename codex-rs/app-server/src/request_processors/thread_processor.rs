@@ -2347,11 +2347,24 @@ impl ThreadRequestProcessor {
         request_id: &ConnectionRequestId,
         params: ThreadCompactStartParams,
     ) -> Result<ThreadCompactStartResponse, JSONRPCErrorError> {
-        let ThreadCompactStartParams { thread_id } = params;
+        let ThreadCompactStartParams {
+            thread_id,
+            inference_work_scope,
+        } = params;
+        if let Some(scope_id) = inference_work_scope.as_deref() {
+            codex_core::InferenceWorkScope::validate_scope_id(scope_id)
+                .map_err(|error| invalid_request(error.to_string()))?;
+        }
 
         let (_, thread) = self.load_thread(&thread_id).await?;
         ensure_direct_input_allowed(thread.as_ref()).await?;
-        self.submit_core_op(request_id, thread.as_ref(), Op::Compact)
+        let op = match inference_work_scope {
+            Some(inference_work_scope) => Op::CompactWithScope {
+                inference_work_scope,
+            },
+            None => Op::Compact,
+        };
+        self.submit_core_op(request_id, thread.as_ref(), op)
             .await
             .map_err(|err| internal_error(format!("failed to start compaction: {err}")))?;
         Ok(ThreadCompactStartResponse {})

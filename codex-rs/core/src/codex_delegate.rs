@@ -224,7 +224,7 @@ pub(crate) async fn run_codex_thread_one_shot(
         auth_manager,
         models_manager,
         parent_session,
-        parent_ctx,
+        Arc::clone(&parent_ctx),
         parent_environments,
         child_cancel.clone(),
         subagent_source,
@@ -242,6 +242,9 @@ pub(crate) async fn run_codex_thread_one_shot(
                 service_tier: None,
                 parent_turn_id: Some(parent_turn_id),
                 root_turn_id,
+                inference_work_scope: parent_ctx
+                    .inference_work_scope()
+                    .map(|scope| scope.scope_id().to_string()),
                 ..Default::default()
             }),
             TurnInputMode::StartIfIdle,

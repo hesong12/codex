@@ -170,6 +170,9 @@ pub struct TurnStartOptions {
     pub parent_turn_id: Option<String>,
     /// Causal root turn lineage recorded if this request starts a new turn.
     pub root_turn_id: Option<String>,
+    /// Opaque non-secret host marker shared by every inference descendant of this work scope.
+    /// Ignored when the submitted input steers an active turn.
+    pub inference_work_scope: Option<String>,
     /// Explicit cyber treatment for this turn. Omission preserves the backend's
     /// automatic behavior.
     pub cyber_access_program: Option<CyberAccessProgram>,

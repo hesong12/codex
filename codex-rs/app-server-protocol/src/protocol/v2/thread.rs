@@ -1112,6 +1112,9 @@ pub struct ThreadUnarchiveResponse {
 #[ts(export_to = "v2/")]
 pub struct ThreadCompactStartParams {
     pub thread_id: String,
+    /// Opaque non-secret marker inherited by this compaction request.
+    #[ts(optional = nullable)]
+    pub inference_work_scope: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

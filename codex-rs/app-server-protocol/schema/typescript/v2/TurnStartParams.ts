@@ -16,6 +16,9 @@ export type TurnStartParams = {threadId: string, clientUserMessageId?: string | 
  * Ignored when this request steers an already-active turn.
  */
 turnTrigger?: string | null, toolOutput?: TurnToolOutput | null, /**
+ * Opaque non-secret marker inherited by native inference descendants of a new turn.
+ */
+inferenceWorkScope?: string | null, /**
  * Override the working directory for this turn and subsequent turns.
  */
 cwd?: string | null, /**

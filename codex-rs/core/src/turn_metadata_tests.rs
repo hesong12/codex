@@ -5,6 +5,7 @@ use crate::responses_metadata::CONTEXT_WINDOW_ID_KEY;
 use crate::responses_metadata::CodexResponsesRequestKind;
 use crate::responses_metadata::CompactionTurnMetadata;
 use crate::responses_metadata::FORKED_FROM_ORDINAL_EXCLUSIVE_KEY;
+use crate::responses_metadata::INFERENCE_WORK_SCOPE_KEY;
 use crate::responses_metadata::INSTALLATION_ID_KEY;
 use crate::responses_metadata::LEGACY_CODE_MODE_TOOL_NAMES_KEY;
 use crate::responses_metadata::NODE_REPL_AUTO_REVIEW_REQUIRED_KEY;
@@ -149,6 +150,7 @@ async fn detached_memory_responses_metadata_omits_turn_identity() {
         &repo_path,
         &PermissionProfile::read_only(),
         Some("none"),
+        /*inference_work_scope*/ None,
     )
     .await
     .turn_metadata_json()
@@ -202,6 +204,7 @@ async fn detached_memory_responses_metadata_omits_empty_workspace_metadata() {
         &cwd,
         &PermissionProfile::read_only(),
         /*sandbox*/ None,
+        /*inference_work_scope*/ None,
     )
     .await
     .turn_metadata_json()
@@ -264,6 +267,51 @@ fn turn_metadata_state_includes_sandbox_metadata() {
     assert!(json.get("parent_thread_id").is_none());
     assert!(json.get("subagent_kind").is_none());
     assert!(json.get("session_source").is_none());
+}
+
+#[test]
+fn turn_metadata_projects_inference_work_scope_to_metadata_and_http_header() {
+    let temp_dir = TempDir::new().expect("temp dir");
+    let state = TurnMetadataState::new(
+        "session-scope".to_string(),
+        "thread-scope".to_string(),
+        /*forked_from_thread_id*/ None,
+        /*parent_thread_id*/ None,
+        &SessionSource::Exec,
+        /*thread_source*/ None,
+        "turn-scope".to_string(),
+        temp_dir.path().abs(),
+        &PermissionProfile::read_only(),
+        WindowsSandboxLevel::Disabled,
+        /*enforce_managed_network*/ false,
+        /*auto_review_enabled*/ false,
+        &model_info_from_slug("gpt-5.4"),
+    );
+    state.set_inference_work_scope("route-work-123".to_string());
+
+    let metadata = state.to_responses_metadata(
+        "installation-scope".to_string(),
+        "window-scope".to_string(),
+        CodexResponsesRequestKind::Turn,
+    );
+    let json: Value = serde_json::from_str(
+        metadata
+            .turn_metadata_json()
+            .as_deref()
+            .expect("turn metadata"),
+    )
+    .expect("valid metadata json");
+    assert_eq!(
+        json[INFERENCE_WORK_SCOPE_KEY].as_str(),
+        Some("route-work-123")
+    );
+    assert_eq!(
+        metadata
+            .compatibility_headers()
+            .get(crate::client::X_CODEX_INFERENCE_WORK_SCOPE_HEADER)
+            .and_then(|value| value.to_str().ok()),
+        Some("route-work-123")
+    );
 }
 
 #[test]

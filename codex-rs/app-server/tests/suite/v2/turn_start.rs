@@ -30,6 +30,11 @@ use codex_app_server_protocol::CommandExecutionStatus;
 use codex_app_server_protocol::FileChangeApprovalDecision;
 use codex_app_server_protocol::FileChangePatchUpdatedNotification;
 use codex_app_server_protocol::FileChangeRequestApprovalResponse;
+use codex_app_server_protocol::InferenceWorkCompletedNotification;
+use codex_app_server_protocol::InferenceWorkKind;
+use codex_app_server_protocol::InferenceWorkOutcome;
+use codex_app_server_protocol::InferenceWorkStartedNotification;
+use codex_app_server_protocol::InferenceWorkSubtreeIdleNotification;
 use codex_app_server_protocol::ItemCompletedNotification;
 use codex_app_server_protocol::ItemStartedNotification;
 use codex_app_server_protocol::JSONRPCError;
@@ -2128,13 +2133,14 @@ async fn turn_start_emits_notifications_and_accepts_model_override() -> Result<(
         })
         .await?;
 
-    // Start a turn with only input and thread_id set (no overrides).
+    // Start a turn with host-scoped inference lifecycle evidence.
     let TurnStartResponse { turn } = mcp
         .request(|request_id| ClientRequest::TurnStart {
             request_id,
             params: TurnStartParams {
                 thread_id: thread.id.clone(),
                 client_user_message_id: None,
+                inference_work_scope: Some("scope-turn-start".to_string()),
                 input: vec![V2UserInput::Text {
                     text: "Hello".to_string(),
                     text_elements: Vec::new(),
@@ -2144,6 +2150,23 @@ async fn turn_start_emits_notifications_and_accepts_model_override() -> Result<(
         })
         .await?;
     assert!(!turn.id.is_empty());
+
+    let inference_started: InferenceWorkStartedNotification = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_notification("inferenceWork/started"),
+    )
+    .await??;
+    assert_eq!(
+        inference_started,
+        InferenceWorkStartedNotification {
+            scope_id: "scope-turn-start".to_string(),
+            root_work_id: turn.id.clone(),
+            work_id: turn.id.clone(),
+            parent_work_id: None,
+            thread_id: thread.id.clone(),
+            kind: InferenceWorkKind::Turn,
+        }
+    );
 
     // Expect a turn/started notification.
     let started: TurnStartedNotification =
@@ -2165,6 +2188,34 @@ async fn turn_start_emits_notifications_and_accepts_model_override() -> Result<(
     assert_eq!(completed.thread_id, thread.id);
     assert_eq!(completed.turn.id, turn.id);
     assert_eq!(completed.turn.status, TurnStatus::Completed);
+    let inference_completed: InferenceWorkCompletedNotification = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_notification("inferenceWork/completed"),
+    )
+    .await??;
+    assert_eq!(
+        inference_completed,
+        InferenceWorkCompletedNotification {
+            scope_id: "scope-turn-start".to_string(),
+            root_work_id: turn.id.clone(),
+            work_id: turn.id.clone(),
+            thread_id: thread.id.clone(),
+            kind: InferenceWorkKind::Turn,
+            outcome: InferenceWorkOutcome::Completed,
+        }
+    );
+    let inference_idle: InferenceWorkSubtreeIdleNotification = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_notification("inferenceWork/subtreeIdle"),
+    )
+    .await??;
+    assert_eq!(
+        inference_idle,
+        InferenceWorkSubtreeIdleNotification {
+            scope_id: "scope-turn-start".to_string(),
+            root_work_id: turn.id.clone(),
+        }
+    );
 
     // Send a second turn that exercises the overrides path: change the model.
     let TurnStartResponse { turn: turn2 } = mcp
@@ -3162,6 +3213,7 @@ async fn turn_start_explicit_local_environment_updates_legacy_cwd_between_turns(
                 turn_trigger: None,
                 tool_output: None,
                 responsesapi_client_metadata: None,
+                inference_work_scope: None,
                 additional_context: None,
                 cwd: Some(first_cwd.clone()),
                 runtime_workspace_roots: None,
@@ -3214,6 +3266,7 @@ async fn turn_start_explicit_local_environment_updates_legacy_cwd_between_turns(
                 turn_trigger: None,
                 tool_output: None,
                 responsesapi_client_metadata: None,
+                inference_work_scope: None,
                 additional_context: None,
                 cwd: None,
                 runtime_workspace_roots: None,

@@ -4747,6 +4747,7 @@ fn turn_start_params_preserve_explicit_null_service_tier() {
         turn_trigger: None,
         tool_output: None,
         responsesapi_client_metadata: None,
+        inference_work_scope: None,
         additional_context: None,
         environments: None,
         cwd: None,
@@ -5007,6 +5008,38 @@ fn turn_start_params_treat_null_or_omitted_environments_as_default() {
     assert_eq!(
         crate::experimental_api::ExperimentalApi::experimental_reason(&omitted_environments),
         None
+    );
+}
+
+#[test]
+fn inference_work_scope_round_trips_on_host_inference_entry_points() {
+    let turn: TurnStartParams = serde_json::from_value(json!({
+        "threadId": "thread_123",
+        "input": [],
+        "inferenceWorkScope": "route-turn"
+    }))
+    .expect("turn params should deserialize");
+    let review: ReviewStartParams = serde_json::from_value(json!({
+        "threadId": "thread_123",
+        "target": { "type": "uncommittedChanges" },
+        "inferenceWorkScope": "route-review"
+    }))
+    .expect("review params should deserialize");
+    let compact: ThreadCompactStartParams = serde_json::from_value(json!({
+        "threadId": "thread_123",
+        "inferenceWorkScope": "route-compact"
+    }))
+    .expect("compact params should deserialize");
+
+    assert_eq!(turn.inference_work_scope.as_deref(), Some("route-turn"));
+    assert_eq!(review.inference_work_scope.as_deref(), Some("route-review"));
+    assert_eq!(
+        compact.inference_work_scope.as_deref(),
+        Some("route-compact")
+    );
+    assert_eq!(
+        serde_json::to_value(turn).expect("turn params should serialize")["inferenceWorkScope"],
+        "route-turn"
     );
 }
 

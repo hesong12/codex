@@ -3630,6 +3630,13 @@
           "default": null,
           "description": "Where to run the review: inline (default) on the current thread or detached on a new thread (returned in `reviewThreadId`)."
         },
+        "inferenceWorkScope": {
+          "description": "Opaque non-secret marker inherited by inference work started for this review.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "target": {
           "$ref": "#/definitions/ReviewTarget"
         },
@@ -4062,6 +4069,13 @@
     },
     "ThreadCompactStartParams": {
       "properties": {
+        "inferenceWorkScope": {
+          "description": "Opaque non-secret marker inherited by this compaction request.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "threadId": {
           "type": "string"
         }
@@ -5343,6 +5357,13 @@
             }
           ],
           "description": "Override the reasoning effort for this turn and subsequent turns."
+        },
+        "inferenceWorkScope": {
+          "description": "Opaque non-secret marker inherited by native inference descendants of a new turn.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "input": {
           "items": {

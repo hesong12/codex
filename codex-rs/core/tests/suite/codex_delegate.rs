@@ -48,20 +48,21 @@ async fn codex_delegate_ignores_legacy_deltas() {
     ]);
 
     let server = start_mock_server().await;
-    mount_sse_sequence(&server, vec![sse_stream]).await;
+    let response_mock = mount_sse_sequence(&server, vec![sse_stream]).await;
 
     let mut builder = test_codex();
     let test = builder.build(&server).await.expect("build test codex");
 
     // Kick off review (delegated).
     test.codex
-        .submit(Op::Review {
+        .submit(Op::ReviewWithScope {
             review_request: ReviewRequest {
                 target: ReviewTarget::Custom {
                     instructions: "Please review".to_string(),
                 },
                 user_facing_hint: None,
             },
+            inference_work_scope: "review-route-scope".to_string(),
         })
         .await
         .expect("submit review");
@@ -78,6 +79,17 @@ async fn codex_delegate_ignores_legacy_deltas() {
     }
 
     assert_eq!(reasoning_delta_count, 1, "expected one new reasoning delta");
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::InferenceWorkSubtreeIdle(_))
+    })
+    .await;
+    assert_eq!(
+        response_mock
+            .single_request()
+            .header("x-codex-inference-work-scope")
+            .as_deref(),
+        Some("review-route-scope")
+    );
 }
 
 #[cfg_attr(windows, ignore = "no exec_command on Windows")]

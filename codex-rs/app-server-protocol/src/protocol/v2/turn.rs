@@ -14,6 +14,8 @@ use codex_protocol::models::ImageDetail;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::plan_tool::PlanItemArg as CorePlanItemArg;
 use codex_protocol::plan_tool::StepStatus as CorePlanStepStatus;
+use codex_protocol::protocol::InferenceWorkKind as CoreInferenceWorkKind;
+use codex_protocol::protocol::InferenceWorkOutcome as CoreInferenceWorkOutcome;
 use codex_protocol::turn_input::CyberAccessProgram as CoreCyberAccessProgram;
 use codex_protocol::user_input::ByteRange as CoreByteRange;
 use codex_protocol::user_input::TextElement as CoreTextElement;
@@ -170,6 +172,9 @@ pub struct TurnStartParams {
     #[experimental("turn/start.responsesapiClientMetadata")]
     #[ts(optional = nullable)]
     pub responsesapi_client_metadata: Option<HashMap<String, String>>,
+    /// Opaque non-secret marker inherited by native inference descendants of a new turn.
+    #[ts(optional = nullable)]
+    pub inference_work_scope: Option<String>,
     /// Optional client-provided context fragments keyed by an opaque source identifier.
     #[experimental("turn/start.additionalContext")]
     #[ts(optional = nullable)]
@@ -488,6 +493,84 @@ impl UserInput {
 pub struct TurnStartedNotification {
     pub thread_id: String,
     pub turn: Turn,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase", export_to = "v2/")]
+pub enum InferenceWorkKind {
+    Turn,
+    GoalContinuation,
+    Subagent,
+    Review,
+    Compaction,
+    Memory,
+}
+
+impl From<CoreInferenceWorkKind> for InferenceWorkKind {
+    fn from(value: CoreInferenceWorkKind) -> Self {
+        match value {
+            CoreInferenceWorkKind::Turn => Self::Turn,
+            CoreInferenceWorkKind::GoalContinuation => Self::GoalContinuation,
+            CoreInferenceWorkKind::Subagent => Self::Subagent,
+            CoreInferenceWorkKind::Review => Self::Review,
+            CoreInferenceWorkKind::Compaction => Self::Compaction,
+            CoreInferenceWorkKind::Memory => Self::Memory,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase", export_to = "v2/")]
+pub enum InferenceWorkOutcome {
+    Completed,
+    Interrupted,
+    Failed,
+    Crashed,
+}
+
+impl From<CoreInferenceWorkOutcome> for InferenceWorkOutcome {
+    fn from(value: CoreInferenceWorkOutcome) -> Self {
+        match value {
+            CoreInferenceWorkOutcome::Completed => Self::Completed,
+            CoreInferenceWorkOutcome::Interrupted => Self::Interrupted,
+            CoreInferenceWorkOutcome::Failed => Self::Failed,
+            CoreInferenceWorkOutcome::Crashed => Self::Crashed,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct InferenceWorkStartedNotification {
+    pub scope_id: String,
+    pub root_work_id: String,
+    pub work_id: String,
+    pub parent_work_id: Option<String>,
+    pub thread_id: String,
+    pub kind: InferenceWorkKind,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct InferenceWorkCompletedNotification {
+    pub scope_id: String,
+    pub root_work_id: String,
+    pub work_id: String,
+    pub thread_id: String,
+    pub kind: InferenceWorkKind,
+    pub outcome: InferenceWorkOutcome,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct InferenceWorkSubtreeIdleNotification {
+    pub scope_id: String,
+    pub root_work_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

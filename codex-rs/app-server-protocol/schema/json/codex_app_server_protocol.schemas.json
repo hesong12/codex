@@ -4851,6 +4851,66 @@
           "properties": {
             "method": {
               "enum": [
+                "inferenceWork/started"
+              ],
+              "title": "InferenceWork/startedNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/InferenceWorkStartedNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "InferenceWork/startedNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "inferenceWork/completed"
+              ],
+              "title": "InferenceWork/completedNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/InferenceWorkCompletedNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "InferenceWork/completedNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "inferenceWork/subtreeIdle"
+              ],
+              "title": "InferenceWork/subtreeIdleNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/InferenceWorkSubtreeIdleNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "InferenceWork/subtreeIdleNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
                 "hook/started"
               ],
               "title": "Hook/startedNotificationMethod",
@@ -13179,6 +13239,111 @@
         },
         "type": "object"
       },
+      "InferenceWorkCompletedNotification": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "kind": {
+            "$ref": "#/definitions/v2/InferenceWorkKind"
+          },
+          "outcome": {
+            "$ref": "#/definitions/v2/InferenceWorkOutcome"
+          },
+          "rootWorkId": {
+            "type": "string"
+          },
+          "scopeId": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": "string"
+          },
+          "workId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "outcome",
+          "rootWorkId",
+          "scopeId",
+          "threadId",
+          "workId"
+        ],
+        "title": "InferenceWorkCompletedNotification",
+        "type": "object"
+      },
+      "InferenceWorkKind": {
+        "enum": [
+          "turn",
+          "goalContinuation",
+          "subagent",
+          "review",
+          "compaction",
+          "memory"
+        ],
+        "type": "string"
+      },
+      "InferenceWorkOutcome": {
+        "enum": [
+          "completed",
+          "interrupted",
+          "failed",
+          "crashed"
+        ],
+        "type": "string"
+      },
+      "InferenceWorkStartedNotification": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "kind": {
+            "$ref": "#/definitions/v2/InferenceWorkKind"
+          },
+          "parentWorkId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rootWorkId": {
+            "type": "string"
+          },
+          "scopeId": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": "string"
+          },
+          "workId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "rootWorkId",
+          "scopeId",
+          "threadId",
+          "workId"
+        ],
+        "title": "InferenceWorkStartedNotification",
+        "type": "object"
+      },
+      "InferenceWorkSubtreeIdleNotification": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "rootWorkId": {
+            "type": "string"
+          },
+          "scopeId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rootWorkId",
+          "scopeId"
+        ],
+        "title": "InferenceWorkSubtreeIdleNotification",
+        "type": "object"
+      },
       "InputModality": {
         "description": "Canonical user-input modality tags advertised by a model.",
         "oneOf": [
@@ -18757,6 +18922,13 @@
             "default": null,
             "description": "Where to run the review: inline (default) on the current thread or detached on a new thread (returned in `reviewThreadId`)."
           },
+          "inferenceWorkScope": {
+            "description": "Opaque non-secret marker inherited by inference work started for this review.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "target": {
             "$ref": "#/definitions/v2/ReviewTarget"
           },
@@ -20244,6 +20416,13 @@
       "ThreadCompactStartParams": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "properties": {
+          "inferenceWorkScope": {
+            "description": "Opaque non-secret marker inherited by this compaction request.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "threadId": {
             "type": "string"
           }
@@ -24445,6 +24624,13 @@
               }
             ],
             "description": "Override the reasoning effort for this turn and subsequent turns."
+          },
+          "inferenceWorkScope": {
+            "description": "Opaque non-secret marker inherited by native inference descendants of a new turn.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "input": {
             "items": {

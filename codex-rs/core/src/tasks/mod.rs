@@ -49,7 +49,12 @@ use codex_otel::TURN_TOOL_CALL_METRIC;
 use codex_otel::TURN_UNIFIED_EXEC_RUNNING_PROCESSES_METRIC;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::EventMsg;
+use codex_protocol::protocol::InferenceWorkKind;
+use codex_protocol::protocol::InferenceWorkOutcome;
+use codex_protocol::protocol::InternalSessionSource;
 use codex_protocol::protocol::MultiAgentVersion;
+use codex_protocol::protocol::SessionSource;
+use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::TurnAbortReason;
 use codex_protocol::protocol::TurnAbortedEvent;
@@ -166,6 +171,56 @@ pub(crate) fn emit_compact_metric(
 
 fn bool_tag(value: bool) -> &'static str {
     if value { "true" } else { "false" }
+}
+
+fn inference_work_kind(
+    task_kind: TaskKind,
+    session_source: &SessionSource,
+    turn_trigger: Option<&str>,
+) -> InferenceWorkKind {
+    match task_kind {
+        TaskKind::Review => InferenceWorkKind::Review,
+        TaskKind::Compact => InferenceWorkKind::Compaction,
+        TaskKind::Regular => match session_source {
+            SessionSource::Internal(InternalSessionSource::MemoryConsolidation)
+            | SessionSource::SubAgent(SubAgentSource::MemoryConsolidation) => {
+                InferenceWorkKind::Memory
+            }
+            SessionSource::SubAgent(SubAgentSource::Review) => InferenceWorkKind::Review,
+            SessionSource::SubAgent(SubAgentSource::Compact) => InferenceWorkKind::Compaction,
+            SessionSource::SubAgent(SubAgentSource::ThreadSpawn { .. }) => {
+                InferenceWorkKind::Subagent
+            }
+            SessionSource::SubAgent(SubAgentSource::Other(_))
+            | SessionSource::Internal(_)
+            | SessionSource::Cli
+            | SessionSource::VSCode
+            | SessionSource::Exec
+            | SessionSource::Mcp
+            | SessionSource::Custom(_)
+            | SessionSource::Unknown => {
+                if turn_trigger == Some("goal") {
+                    InferenceWorkKind::GoalContinuation
+                } else {
+                    InferenceWorkKind::Turn
+                }
+            }
+        },
+    }
+}
+
+fn inference_work_outcome(result: &SessionTaskResult, cancelled: bool) -> InferenceWorkOutcome {
+    if cancelled
+        || result
+            .as_ref()
+            .is_err_and(|error| matches!(error.details(), CodexErrorDetails::TurnAborted))
+    {
+        InferenceWorkOutcome::Interrupted
+    } else if result.is_err() {
+        InferenceWorkOutcome::Failed
+    } else {
+        InferenceWorkOutcome::Completed
+    }
 }
 
 /// Async task that drives a [`Session`] turn.
@@ -300,6 +355,22 @@ impl Session {
 
         let cancellation_token = CancellationToken::new();
         let done = Arc::new(Notify::new());
+        let inference_work_guard = turn_context
+            .inference_work_scope
+            .as_ref()
+            .and_then(|scope| {
+                scope.start_work(
+                    turn_context.sub_id.clone(),
+                    turn_context.turn_metadata_state.parent_turn_id(),
+                    self.thread_id,
+                    inference_work_kind(
+                        task_kind,
+                        &turn_context.session_source,
+                        turn_context.turn_metadata_state.turn_trigger(),
+                    ),
+                    cancellation_token.clone(),
+                )
+            });
 
         self.services
             .guardian_rejection_circuit_breaker
@@ -364,6 +435,7 @@ impl Session {
         );
         let handle = tokio::spawn(
             async move {
+                let mut inference_work_guard = inference_work_guard;
                 let ctx_for_finish = Arc::clone(&ctx);
                 let task_result = task_for_run
                     .run(
@@ -374,6 +446,10 @@ impl Session {
                     )
                     .instrument(trace_span!("session_task.run"))
                     .await;
+                let inference_work_outcome = inference_work_outcome(
+                    &task_result,
+                    task_cancellation_token.is_cancelled(),
+                );
                 let sess = Arc::clone(&session);
                 if let Err(err) = sess.flush_rollout().await {
                     warn!("failed to flush rollout before completing turn: {err}");
@@ -391,6 +467,9 @@ impl Session {
                     // Finish uniformly from the spawn site so all tasks share the same lifecycle.
                     sess.on_task_finished(Arc::clone(&ctx_for_finish), task_result)
                         .await;
+                }
+                if let Some(guard) = inference_work_guard.as_mut() {
+                    guard.finish(inference_work_outcome);
                 }
                 done_clone.notify_waiters();
             }
@@ -480,6 +559,7 @@ impl Session {
                 NewTurnContextOptions {
                     final_output_json_schema: start_options.final_output_json_schema,
                     cyber_access_program: start_options.cyber_access_program,
+                    inference_work_scope: start_options.inference_work_scope,
                 },
             )
             .await;
@@ -1006,6 +1086,10 @@ impl Session {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "inference_work_tests.rs"]
+mod inference_work_tests;
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]

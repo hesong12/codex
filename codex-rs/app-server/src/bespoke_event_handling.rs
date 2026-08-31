@@ -35,6 +35,9 @@ use codex_app_server_protocol::GrantedPermissionProfile as V2GrantedPermissionPr
 use codex_app_server_protocol::GuardianWarningNotification;
 use codex_app_server_protocol::HookCompletedNotification;
 use codex_app_server_protocol::HookStartedNotification;
+use codex_app_server_protocol::InferenceWorkCompletedNotification;
+use codex_app_server_protocol::InferenceWorkStartedNotification;
+use codex_app_server_protocol::InferenceWorkSubtreeIdleNotification;
 use codex_app_server_protocol::ItemCompletedNotification;
 use codex_app_server_protocol::ItemStartedNotification;
 use codex_app_server_protocol::McpServerElicitationAction;
@@ -160,6 +163,44 @@ pub(crate) async fn apply_bespoke_event_handling(
         msg,
     } = event;
     match msg {
+        EventMsg::InferenceWorkStarted(event) => {
+            outgoing
+                .send_server_notification(ServerNotification::InferenceWorkStarted(
+                    InferenceWorkStartedNotification {
+                        scope_id: event.scope_id,
+                        root_work_id: event.root_work_id,
+                        work_id: event.work_id,
+                        parent_work_id: event.parent_work_id,
+                        thread_id: event.thread_id.to_string(),
+                        kind: event.kind.into(),
+                    },
+                ))
+                .await;
+        }
+        EventMsg::InferenceWorkCompleted(event) => {
+            outgoing
+                .send_server_notification(ServerNotification::InferenceWorkCompleted(
+                    InferenceWorkCompletedNotification {
+                        scope_id: event.scope_id,
+                        root_work_id: event.root_work_id,
+                        work_id: event.work_id,
+                        thread_id: event.thread_id.to_string(),
+                        kind: event.kind.into(),
+                        outcome: event.outcome.into(),
+                    },
+                ))
+                .await;
+        }
+        EventMsg::InferenceWorkSubtreeIdle(event) => {
+            outgoing
+                .send_server_notification(ServerNotification::InferenceWorkSubtreeIdle(
+                    InferenceWorkSubtreeIdleNotification {
+                        scope_id: event.scope_id,
+                        root_work_id: event.root_work_id,
+                    },
+                ))
+                .await;
+        }
         EventMsg::TurnStarted(payload) => {
             // While not technically necessary as it was already done on TurnComplete, be extra cautios and abort any pending server requests.
             outgoing.abort_pending_server_requests().await;

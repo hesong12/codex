@@ -748,6 +748,13 @@
       ],
       "description": "Override the reasoning effort for this turn and subsequent turns."
     },
+    "inferenceWorkScope": {
+      "description": "Opaque non-secret marker inherited by native inference descendants of a new turn.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "input": {
       "items": {
         "$ref": "#/definitions/UserInput"

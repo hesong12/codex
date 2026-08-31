@@ -632,6 +632,7 @@ impl TurnRequestProcessor {
                         turn_trigger: params.turn_trigger,
                         final_output_json_schema: params.output_schema,
                         service_tier: params.service_tier_for_turn,
+                        inference_work_scope: params.inference_work_scope,
                         cyber_access_program: params.cyber_access_program.map(Into::into),
                         ..Default::default()
                     })
@@ -1432,13 +1433,17 @@ impl TurnRequestProcessor {
         review_request: ReviewRequest,
         display_text: &str,
         parent_thread_id: String,
+        inference_work_scope: Option<String>,
     ) -> std::result::Result<(), JSONRPCErrorError> {
+        let op = match inference_work_scope {
+            Some(inference_work_scope) => Op::ReviewWithScope {
+                review_request,
+                inference_work_scope,
+            },
+            None => Op::Review { review_request },
+        };
         let turn_id = self
-            .submit_core_op(
-                request_id,
-                parent_thread.as_ref(),
-                Op::Review { review_request },
-            )
+            .submit_core_op(request_id, parent_thread.as_ref(), op)
             .await
             .map_err(|err| internal_error(format!("failed to start review: {err}")))?;
         let turn = Self::build_review_turn(turn_id, display_text);
@@ -1452,6 +1457,7 @@ impl TurnRequestProcessor {
         request_id: &ConnectionRequestId,
         parent_thread: Arc<CodexThread>,
         prompt: &str,
+        inference_work_scope: Option<String>,
     ) -> std::result::Result<(), JSONRPCErrorError> {
         // AgentRunner::start still delegates to spawn_subagent, which forks from the parent's
         // full history. Paginated threads only allow bounded model-context reads, so keep this
@@ -1481,6 +1487,7 @@ impl TurnRequestProcessor {
                     config,
                     prompt: prompt.to_string(),
                     parent_trace: self.request_trace_context(request_id).await,
+                    inference_work_scope,
                 },
             )
             .await
@@ -1550,7 +1557,12 @@ impl TurnRequestProcessor {
             thread_id,
             target,
             delivery,
+            inference_work_scope,
         } = params;
+        if let Some(scope_id) = inference_work_scope.as_deref() {
+            codex_core::InferenceWorkScope::validate_scope_id(scope_id)
+                .map_err(|error| invalid_request(error.to_string()))?;
+        }
 
         let (_, parent_thread) = self.load_thread(&thread_id).await?;
         self.ensure_direct_input_allowed(request_id, parent_thread.as_ref())
@@ -1565,6 +1577,7 @@ impl TurnRequestProcessor {
                     review_request,
                     &display_text,
                     thread_id,
+                    inference_work_scope,
                 )
                 .await?;
             }
@@ -1580,8 +1593,13 @@ impl TurnRequestProcessor {
                 if actual_chars > MAX_USER_INPUT_TEXT_CHARS {
                     return Err(Self::input_too_large_error(actual_chars));
                 }
-                self.start_detached_review(request_id, parent_thread, &prompt)
-                    .await?;
+                self.start_detached_review(
+                    request_id,
+                    parent_thread,
+                    &prompt,
+                    inference_work_scope,
+                )
+                .await?;
             }
         }
         Ok(())

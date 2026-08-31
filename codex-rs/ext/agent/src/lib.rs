@@ -21,6 +21,7 @@ pub struct AgentInvocation {
     pub config: Config,
     pub prompt: String,
     pub parent_trace: Option<W3cTraceContext>,
+    pub inference_work_scope: Option<String>,
 }
 
 /// A spawned agent whose initial turn has been submitted.
@@ -51,6 +52,7 @@ impl AgentRunner {
             config,
             prompt,
             parent_trace,
+            inference_work_scope,
         } = invocation;
         if prompt.trim().is_empty() {
             return Err(CodexErr::InvalidRequest(
@@ -79,7 +81,11 @@ impl AgentRunner {
                     text: prompt,
                     text_elements: Vec::new(),
                 }])
-                .with_trace(parent_trace),
+                .with_trace(parent_trace)
+                .on_start(codex_core::TurnStartOptions {
+                    inference_work_scope,
+                    ..Default::default()
+                }),
             )
             .await?
         {

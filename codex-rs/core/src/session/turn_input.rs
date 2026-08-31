@@ -91,6 +91,10 @@ impl PreparedTurnInputSettings {
         thread_settings: ThreadSettingsOverrides,
         start_options: TurnStartOptions,
     ) -> CodexResult<Self> {
+        if let Some(scope_id) = start_options.inference_work_scope.as_deref() {
+            crate::InferenceWorkScope::validate_scope_id(scope_id)
+                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
+        }
         let thread_settings_update = if thread_settings == ThreadSettingsOverrides::default() {
             None
         } else {
@@ -126,6 +130,7 @@ impl PreparedTurnInputSettings {
             service_tier,
             parent_turn_id,
             root_turn_id,
+            inference_work_scope,
             cyber_access_program,
         } = self.start_options;
         let emit_thread_settings_applied = self.thread_settings_update.is_some();
@@ -140,6 +145,7 @@ impl PreparedTurnInputSettings {
         let options = NewTurnContextOptions {
             final_output_json_schema,
             cyber_access_program,
+            inference_work_scope,
         };
         let turn_context = match kind {
             TurnStartKind::User | TurnStartKind::Recovery => Some(

@@ -133,6 +133,9 @@ pub(super) async fn spawn_review_thread(
     if turn_metadata_state.can_start_root_turn(&session_source) {
         turn_metadata_state.set_root_turn_id(review_turn_id.clone());
     }
+    if let Some(scope) = parent_turn_context.inference_work_scope.as_ref() {
+        turn_metadata_state.set_inference_work_scope(scope.scope_id().to_string());
+    }
 
     let extension_data = Arc::new(codex_extension_api::ExtensionData::new(
         review_turn_id.clone(),
@@ -154,6 +157,7 @@ pub(super) async fn spawn_review_thread(
         session_telemetry: session_telemetry_for_context,
         provider: provider_for_context,
         session_source,
+        inference_work_scope: parent_turn_context.inference_work_scope.clone(),
         history_mode: parent_turn_context.history_mode,
         parent_thread_id: parent_turn_context.parent_thread_id,
         originator: parent_turn_context.originator.clone(),

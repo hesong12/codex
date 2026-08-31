@@ -23,6 +23,9 @@ pub struct ReviewStartParams {
     #[serde(default)]
     #[ts(optional = nullable)]
     pub delivery: Option<ReviewDelivery>,
+    /// Opaque non-secret marker inherited by inference work started for this review.
+    #[ts(optional = nullable)]
+    pub inference_work_scope: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

@@ -378,6 +378,9 @@ pub(crate) fn tool_runtime_trace_event(event: &EventMsg) -> Option<ToolRuntimeTr
         | EventMsg::ThreadRolledBack(_)
         | EventMsg::ThreadGoalUpdated(_)
         | EventMsg::ThreadQueueChanged(_)
+        | EventMsg::InferenceWorkStarted(_)
+        | EventMsg::InferenceWorkCompleted(_)
+        | EventMsg::InferenceWorkSubtreeIdle(_)
         | EventMsg::TurnStarted(_)
         | EventMsg::ThreadSettingsApplied(_)
         | EventMsg::TurnComplete(_)
@@ -443,6 +446,9 @@ pub(crate) fn wrapped_protocol_event_type(event: &EventMsg) -> Option<&'static s
         EventMsg::ThreadRolledBack(_) => Some("thread_rolled_back"),
         EventMsg::Error(_) => Some("error"),
         EventMsg::Warning(_) => Some("warning"),
+        EventMsg::InferenceWorkStarted(_) => Some("inference_work_started"),
+        EventMsg::InferenceWorkCompleted(_) => Some("inference_work_completed"),
+        EventMsg::InferenceWorkSubtreeIdle(_) => Some("inference_work_subtree_idle"),
         EventMsg::ShutdownComplete => Some("shutdown_complete"),
         EventMsg::AuthRecoveryStarted(_)
         | EventMsg::AuthRecoveryCompleted(_)

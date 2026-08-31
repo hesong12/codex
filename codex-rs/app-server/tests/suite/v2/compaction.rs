@@ -306,6 +306,7 @@ async fn thread_compact_start_triggers_compaction_and_returns_empty_response() -
     let compact_id = mcp
         .send_thread_compact_start_request(ThreadCompactStartParams {
             thread_id: thread_id.clone(),
+            inference_work_scope: None,
         })
         .await?;
     let _: ThreadCompactStartResponse =
@@ -390,6 +391,7 @@ async fn thread_compact_start_rejects_invalid_thread_id() -> Result<()> {
     let request_id = mcp
         .send_thread_compact_start_request(ThreadCompactStartParams {
             thread_id: "not-a-thread-id".to_string(),
+            inference_work_scope: None,
         })
         .await?;
     let error: JSONRPCError = timeout(
@@ -420,6 +422,7 @@ async fn thread_compact_start_rejects_unknown_thread_id() -> Result<()> {
     let request_id = mcp
         .send_thread_compact_start_request(ThreadCompactStartParams {
             thread_id: "67e55044-10b1-426f-9247-bb680e5fe0c8".to_string(),
+            inference_work_scope: None,
         })
         .await?;
     let error: JSONRPCError = timeout(

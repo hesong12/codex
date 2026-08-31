@@ -710,6 +710,9 @@ pub enum Op {
     /// to generate a summary which will be returned as an AgentMessage event.
     Compact,
 
+    /// Compact under one host-supplied non-secret inference work scope.
+    CompactWithScope { inference_work_scope: String },
+
     /// Set whether the thread remains eligible for memory generation.
     ///
     /// This persists thread-level memory mode metadata without involving the
@@ -724,6 +727,12 @@ pub enum Op {
 
     /// Request a code review from the agent.
     Review { review_request: ReviewRequest },
+
+    /// Review under one host-supplied non-secret inference work scope.
+    ReviewWithScope {
+        review_request: ReviewRequest,
+        inference_work_scope: String,
+    },
 
     /// Record that the user approved one retry of a concrete Guardian-denied action.
     ApproveGuardianDeniedAction { event: GuardianAssessmentEvent },
@@ -933,10 +942,10 @@ impl Op {
             Self::DynamicToolResponse { .. } => "dynamic_tool_response",
             Self::RefreshMcpServers => "refresh_mcp_servers",
             Self::ReloadUserConfig => "reload_user_config",
-            Self::Compact => "compact",
+            Self::Compact | Self::CompactWithScope { .. } => "compact",
             Self::SetThreadMemoryMode { .. } => "set_thread_memory_mode",
             Self::ThreadRollback { .. } => "thread_rollback",
-            Self::Review { .. } => "review",
+            Self::Review { .. } | Self::ReviewWithScope { .. } => "review",
             Self::ApproveGuardianDeniedAction { .. } => "approve_guardian_denied_action",
             Self::Shutdown => "shutdown",
             Self::RunUserShellCommand { .. } => "run_user_shell_command",
@@ -1385,6 +1394,15 @@ pub enum EventMsg {
     /// v1 wire format uses `task_started`; accept `turn_started` for v2 interop.
     #[serde(rename = "task_started", alias = "turn_started")]
     TurnStarted(TurnStartedEvent),
+
+    /// A host-scoped inference work item has started.
+    InferenceWorkStarted(InferenceWorkStartedEvent),
+
+    /// A host-scoped inference work item has reached one terminal outcome.
+    InferenceWorkCompleted(InferenceWorkCompletedEvent),
+
+    /// Every work item causally attached to a host-scoped inference subtree is terminal.
+    InferenceWorkSubtreeIdle(InferenceWorkSubtreeIdleEvent),
 
     /// Persistent thread-settings overrides from the correlated submission have
     /// been applied to the session configuration.
@@ -2112,6 +2130,59 @@ pub struct SafetyBufferingEvent {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
 pub struct ContextCompactedEvent;
+
+/// Native inference work categories exposed to host applications.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum InferenceWorkKind {
+    Turn,
+    GoalContinuation,
+    Subagent,
+    Review,
+    Compaction,
+    Memory,
+}
+
+/// Terminal disposition for one native inference work item.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum InferenceWorkOutcome {
+    Completed,
+    Interrupted,
+    Failed,
+    Crashed,
+}
+
+/// Emitted exactly once when one item joins a host-scoped inference subtree.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+pub struct InferenceWorkStartedEvent {
+    pub scope_id: String,
+    pub root_work_id: String,
+    pub work_id: String,
+    pub parent_work_id: Option<String>,
+    pub thread_id: ThreadId,
+    pub kind: InferenceWorkKind,
+}
+
+/// Emitted exactly once when one item leaves a host-scoped inference subtree.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+pub struct InferenceWorkCompletedEvent {
+    pub scope_id: String,
+    pub root_work_id: String,
+    pub work_id: String,
+    pub thread_id: ThreadId,
+    pub kind: InferenceWorkKind,
+    pub outcome: InferenceWorkOutcome,
+}
+
+/// Emitted exactly once after the final item in a host-scoped subtree is terminal.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+pub struct InferenceWorkSubtreeIdleEvent {
+    pub scope_id: String,
+    pub root_work_id: String,
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
 pub struct TurnCompleteEvent {

@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "InferenceWorkKind": {
+      "enum": [
+        "turn",
+        "goalContinuation",
+        "subagent",
+        "review",
+        "compaction",
+        "memory"
+      ],
+      "type": "string"
+    },
+    "InferenceWorkOutcome": {
+      "enum": [
+        "completed",
+        "interrupted",
+        "failed",
+        "crashed"
+      ],
+      "type": "string"
+    }
+  },
+  "properties": {
+    "kind": {
+      "$ref": "#/definitions/InferenceWorkKind"
+    },
+    "outcome": {
+      "$ref": "#/definitions/InferenceWorkOutcome"
+    },
+    "rootWorkId": {
+      "type": "string"
+    },
+    "scopeId": {
+      "type": "string"
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "workId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "outcome",
+    "rootWorkId",
+    "scopeId",
+    "threadId",
+    "workId"
+  ],
+  "title": "InferenceWorkCompletedNotification",
+  "type": "object"
+}

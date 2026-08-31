@@ -18,6 +18,7 @@ use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::client::X_CODEX_INFERENCE_WORK_SCOPE_HEADER;
 use crate::client::X_CODEX_INSTALLATION_ID_HEADER;
 use crate::client::X_CODEX_PARENT_THREAD_ID_HEADER;
 use crate::client::X_CODEX_TURN_METADATA_HEADER;
@@ -45,6 +46,7 @@ pub(crate) const FORKED_FROM_ORDINAL_EXCLUSIVE_KEY: &str = "forked_from_ordinal_
 pub(crate) const PARENT_THREAD_ID_KEY: &str = "parent_thread_id";
 pub(crate) const PARENT_TURN_ID_KEY: &str = "parent_turn_id";
 pub(crate) const ROOT_TURN_ID_KEY: &str = "root_turn_id";
+pub(crate) const INFERENCE_WORK_SCOPE_KEY: &str = "inference_work_scope";
 pub(crate) const SUBAGENT_KIND_KEY: &str = "subagent_kind";
 pub(crate) const THREAD_SOURCE_KEY: &str = "thread_source";
 pub(crate) const TURN_TRIGGER_KEY: &str = "turn_trigger";
@@ -82,6 +84,8 @@ const RESERVED_METADATA_KEYS: &[&str] = &[
     PARENT_THREAD_ID_KEY,
     PARENT_TURN_ID_KEY,
     ROOT_TURN_ID_KEY,
+    INFERENCE_WORK_SCOPE_KEY,
+    X_CODEX_INFERENCE_WORK_SCOPE_HEADER,
     SUBAGENT_KIND_KEY,
     THREAD_SOURCE_KEY,
     TURN_TRIGGER_KEY,
@@ -232,6 +236,7 @@ pub struct CodexResponsesMetadata {
     pub(crate) parent_thread_id: Option<ThreadId>,
     pub(crate) parent_turn_id: Option<String>,
     pub(crate) root_turn_id: Option<String>,
+    pub(crate) inference_work_scope: Option<String>,
     pub(crate) subagent_header: Option<String>,
     pub(crate) subagent_kind: Option<String>,
     pub(crate) thread_source: Option<ThreadSource>,
@@ -271,6 +276,7 @@ impl CodexResponsesMetadata {
             parent_thread_id: None,
             parent_turn_id: None,
             root_turn_id: None,
+            inference_work_scope: None,
             subagent_header: None,
             subagent_kind: None,
             thread_source: None,
@@ -331,6 +337,9 @@ impl CodexResponsesMetadata {
         if let Some(root_turn_id) = &self.root_turn_id {
             client_metadata.insert(ROOT_TURN_ID_KEY.to_string(), root_turn_id.clone());
         }
+        if let Some(scope_id) = &self.inference_work_scope {
+            client_metadata.insert(INFERENCE_WORK_SCOPE_KEY.to_string(), scope_id.clone());
+        }
         if self.has_turn_metadata()
             && let Some(turn_metadata_json) = self.turn_metadata_json()
         {
@@ -366,6 +375,9 @@ impl CodexResponsesMetadata {
         if let Some(subagent_header) = &self.subagent_header {
             insert_header(&mut headers, X_OPENAI_SUBAGENT_HEADER, subagent_header);
         }
+        if let Some(scope_id) = &self.inference_work_scope {
+            insert_header(&mut headers, X_CODEX_INFERENCE_WORK_SCOPE_HEADER, scope_id);
+        }
         headers
     }
 
@@ -400,6 +412,7 @@ impl CodexResponsesMetadata {
             parent_thread_id: self.parent_thread_id,
             parent_turn_id: self.parent_turn_id.as_deref(),
             root_turn_id: self.root_turn_id.as_deref(),
+            inference_work_scope: self.inference_work_scope.as_deref(),
             subagent_kind: self.subagent_kind.as_deref(),
             thread_source: self.thread_source.as_ref(),
             turn_trigger: self.turn_trigger.as_deref(),
@@ -534,6 +547,8 @@ struct CodexTurnMetadataPayload<'a> {
     parent_turn_id: Option<&'a str>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     root_turn_id: Option<&'a str>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    inference_work_scope: Option<&'a str>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     subagent_kind: Option<&'a str>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

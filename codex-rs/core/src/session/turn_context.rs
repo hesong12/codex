@@ -6,6 +6,7 @@ use crate::config::TokenBudgetConfig;
 use crate::environment_selection::EnvironmentConfigOrigin;
 use crate::environment_selection::TurnEnvironmentSnapshot;
 use crate::exec_policy::AllowPrefixRules;
+use crate::inference_work::InferenceWorkScope;
 use crate::shell_snapshot::ShellSnapshotFile;
 use crate::tools::sandboxing::executor_windows_sandbox_level;
 use arc_swap::ArcSwap;
@@ -187,6 +188,7 @@ impl std::fmt::Debug for TurnEnvironment {
 pub(crate) struct NewTurnContextOptions {
     pub(crate) final_output_json_schema: Option<Value>,
     pub(crate) cyber_access_program: Option<CyberAccessProgram>,
+    pub(crate) inference_work_scope: Option<String>,
 }
 
 /// The context needed for a single turn of the thread.
@@ -213,6 +215,7 @@ pub struct TurnContext {
     pub(crate) session_telemetry: SessionTelemetry,
     pub(crate) provider: SharedModelProvider,
     pub(crate) session_source: SessionSource,
+    pub(crate) inference_work_scope: Option<InferenceWorkScope>,
     pub(crate) history_mode: ThreadHistoryMode,
     pub(crate) parent_thread_id: Option<ThreadId>,
     pub(crate) originator: String,
@@ -251,6 +254,10 @@ enum TurnMultiAgentRuntime {
 }
 
 impl TurnContext {
+    pub fn inference_work_scope(&self) -> Option<InferenceWorkScope> {
+        self.inference_work_scope.clone()
+    }
+
     /// Legacy: returns the frozen initial-turn model metadata.
     /// Step-scoped consumers should use their captured `StepContext::settings`.
     pub(crate) fn model_info(&self) -> &Arc<ModelInfo> {
@@ -521,6 +528,7 @@ impl TurnContext {
             current_settings: ArcSwap::from(step_settings),
             session_telemetry,
             provider: self.provider.clone(),
+            inference_work_scope: self.inference_work_scope.clone(),
             session_source: self.session_source.clone(),
             history_mode: self.history_mode,
             parent_thread_id: self.parent_thread_id,
@@ -793,6 +801,7 @@ impl Session {
             session_telemetry: session_telemetry_for_context,
             provider,
             session_source,
+            inference_work_scope: None,
             history_mode: session_configuration.history_mode,
             parent_thread_id: session_configuration.parent_thread_id,
             originator: session_configuration.originator.clone(),
@@ -1024,6 +1033,16 @@ impl Session {
         turn_context.realtime_active = self.conversation.running_state().await.is_some();
 
         turn_context.final_output_json_schema = options.final_output_json_schema;
+        if let Some(scope_id) = options.inference_work_scope {
+            let Ok(scope) = InferenceWorkScope::resolve(scope_id, self.get_tx_event()) else {
+                unreachable!("inference work scope was validated before turn construction");
+            };
+            turn_context
+                .turn_metadata_state
+                .set_inference_work_scope(scope.scope_id().to_string());
+            self.services.thread_extension_data.insert(scope.clone());
+            turn_context.inference_work_scope = Some(scope);
+        }
         if turn_context.config.model_provider_id == codex_model_provider_info::OPENAI_PROVIDER_ID {
             turn_context.cyber_access_program = options.cyber_access_program;
         }

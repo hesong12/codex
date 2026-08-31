@@ -197,6 +197,9 @@ pub fn should_persist_event_msg(ev: &EventMsg, history_mode: ThreadHistoryMode) 
         | EventMsg::CollabAgentInteractionBegin(_)
         | EventMsg::CollabWaitingBegin(_)
         | EventMsg::CollabCloseBegin(_)
+        | EventMsg::InferenceWorkStarted(_)
+        | EventMsg::InferenceWorkCompleted(_)
+        | EventMsg::InferenceWorkSubtreeIdle(_)
         | EventMsg::CollabResumeBegin(_) => false,
     }
 }

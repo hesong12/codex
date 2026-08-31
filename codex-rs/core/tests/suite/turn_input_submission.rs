@@ -12,6 +12,11 @@ use codex_protocol::config_types::ModeKind;
 use codex_protocol::config_types::Settings;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::EventMsg;
+use codex_protocol::protocol::InferenceWorkCompletedEvent;
+use codex_protocol::protocol::InferenceWorkKind;
+use codex_protocol::protocol::InferenceWorkOutcome;
+use codex_protocol::protocol::InferenceWorkStartedEvent;
+use codex_protocol::protocol::InferenceWorkSubtreeIdleEvent;
 use codex_protocol::protocol::ThreadSettingsOverrides;
 use codex_protocol::protocol::TurnEnvironmentSelections;
 use codex_protocol::user_input::UserInput;
@@ -45,6 +50,90 @@ async fn submit_user_message(
     text: &str,
 ) -> codex_protocol::error::Result<TurnInputSubmission> {
     codex.start_or_steer_turn(user_message_request(text)).await
+}
+
+#[tokio::test]
+async fn host_inference_scope_reaches_request_metadata_and_exact_turn_lifecycle() {
+    let server = responses::start_mock_server().await;
+    let response_mock =
+        responses::mount_sse_once(&server, responses::sse_completed("resp-scope")).await;
+    let test = test_codex()
+        .build_with_auto_env(&server)
+        .await
+        .expect("build scoped turn session");
+    let scope_id = "host-route-scope";
+    let submission = test
+        .codex
+        .start_turn_if_idle(
+            user_message_request("scoped turn").on_start(TurnStartOptions {
+                inference_work_scope: Some(scope_id.to_string()),
+                ..Default::default()
+            }),
+        )
+        .await
+        .expect("scoped turn should start");
+    let StartIfIdleSubmission::Started { turn_id } = submission else {
+        panic!("scoped turn was not started");
+    };
+
+    let EventMsg::InferenceWorkStarted(started) = wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::InferenceWorkStarted(_))
+    })
+    .await
+    else {
+        unreachable!("wait_for_event returned an unexpected event");
+    };
+    let thread_id = started.thread_id;
+    assert_eq!(
+        started,
+        InferenceWorkStartedEvent {
+            scope_id: scope_id.to_string(),
+            root_work_id: turn_id.clone(),
+            work_id: turn_id.clone(),
+            parent_work_id: None,
+            thread_id,
+            kind: InferenceWorkKind::Turn,
+        }
+    );
+    let EventMsg::InferenceWorkCompleted(completed) = wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::InferenceWorkCompleted(_))
+    })
+    .await
+    else {
+        unreachable!("wait_for_event returned an unexpected event");
+    };
+    assert_eq!(
+        completed,
+        InferenceWorkCompletedEvent {
+            scope_id: scope_id.to_string(),
+            root_work_id: turn_id.clone(),
+            work_id: turn_id.clone(),
+            thread_id,
+            kind: InferenceWorkKind::Turn,
+            outcome: InferenceWorkOutcome::Completed,
+        }
+    );
+    let EventMsg::InferenceWorkSubtreeIdle(idle) = wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::InferenceWorkSubtreeIdle(_))
+    })
+    .await
+    else {
+        unreachable!("wait_for_event returned an unexpected event");
+    };
+    assert_eq!(
+        idle,
+        InferenceWorkSubtreeIdleEvent {
+            scope_id: scope_id.to_string(),
+            root_work_id: turn_id,
+        }
+    );
+    assert_eq!(
+        response_mock
+            .single_request()
+            .header("x-codex-inference-work-scope")
+            .as_deref(),
+        Some(scope_id)
+    );
 }
 
 #[test_case(ModeKind::Default, ModeKind::Plan; "automatic input cannot enter Plan")]

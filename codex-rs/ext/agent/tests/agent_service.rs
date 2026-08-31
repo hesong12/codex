@@ -32,6 +32,7 @@ async fn starts_resolved_agent_prompt_in_forked_thread() -> Result<()> {
                 config: test.config.clone(),
                 prompt: "Use $example-agent to inspect the current changes.".to_string(),
                 parent_trace: None,
+                inference_work_scope: None,
             },
         )
         .await?;
