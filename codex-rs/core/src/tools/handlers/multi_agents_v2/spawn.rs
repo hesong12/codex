@@ -219,6 +219,9 @@ async fn handle_spawn_agent(
                     parent_thread_id: Some(session.thread_id),
                     parent_turn_id: Some(turn.sub_id.clone()),
                     root_turn_id: turn.turn_metadata_state.root_turn_id(),
+                    inference_work_scope: turn
+                        .inference_work_scope()
+                        .map(|scope| scope.scope_id().to_string()),
                     environments: Some(step_context.environments.to_selections()),
                     multi_agent_v2_usage_hints,
                     cyber_access_program: turn.cyber_access_program,

@@ -747,6 +747,7 @@ impl AgentControl {
         let start_options = TurnStartOptions {
             parent_turn_id: options.parent_turn_id,
             root_turn_id: options.root_turn_id,
+            inference_work_scope: options.inference_work_scope,
             cyber_access_program: options.cyber_access_program,
             ..Default::default()
         };

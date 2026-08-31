@@ -1217,6 +1217,9 @@ async fn run_review_on_session(
                 service_tier: None,
                 parent_turn_id: Some(parent_turn.sub_id.clone()),
                 root_turn_id: parent_turn.turn_metadata_state.root_turn_id(),
+                inference_work_scope: parent_turn
+                    .inference_work_scope()
+                    .map(|scope| scope.scope_id().to_string()),
                 ..Default::default()
             }),
         TurnInputMode::StartIfIdle,

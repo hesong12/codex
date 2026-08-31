@@ -20,6 +20,10 @@ impl Session {
                     turn_id: turn_context.sub_id.as_str(),
                     collaboration_mode: &collaboration_mode,
                     token_usage_at_turn_start,
+                    inference_work_scope: turn_context
+                        .inference_work_scope
+                        .as_ref()
+                        .map(crate::InferenceWorkScope::scope_id),
                     session_store: &self.services.session_extension_data,
                     thread_store: &self.services.thread_extension_data,
                     turn_store: turn_context.extension_data.as_ref(),

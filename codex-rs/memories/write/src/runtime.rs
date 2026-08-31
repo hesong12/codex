@@ -1,4 +1,5 @@
 use codex_core::CodexThread;
+use codex_core::InferenceWorkScope;
 use codex_core::ModelClient;
 use codex_core::NewThread;
 use codex_core::Prompt;
@@ -27,6 +28,8 @@ use codex_protocol::ThreadId;
 use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::protocol::InferenceWorkKind;
+use codex_protocol::protocol::InferenceWorkOutcome;
 use codex_protocol::protocol::InternalSessionSource;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::ThreadSource;
@@ -244,78 +247,100 @@ impl MemoryStartupContext {
         prompt: &Prompt,
         context: &StageOneRequestContext,
     ) -> anyhow::Result<(String, Option<TokenUsage>)> {
-        let installation_id = resolve_installation_id(&config.codex_home).await?;
-        let config_snapshot = self.thread.config_snapshot().await;
-        let session_source = config_snapshot.session_source;
-        let session_id = SessionId::from(self.thread_id);
-        let session_id_string = session_id.to_string();
-        let model_client = ModelClient::new(
-            Some(Arc::clone(&self.auth_manager)),
-            AgentIdentityAuthPolicy::JwtOnly,
-            self.thread_id,
-            config.model_provider.clone(),
-            session_source.clone(),
-            config_snapshot.originator,
-            config.model_verbosity,
-            config.features.enabled(Feature::ContentItemKinds),
-            config.features.enabled(Feature::EnableRequestCompression),
-            config.features.enabled(Feature::RuntimeMetrics),
-            /*beta_features_header*/ None,
-            /*concurrent_reasoning_summaries_enabled*/ false,
-            /*attestation_provider*/ None,
-            config.http_client_factory(),
-        );
-
-        let mut client_session = model_client.new_session();
-        let window_id = format!("{}:0", self.thread_id);
-        let responses_metadata = detached_memory_responses_metadata(
-            installation_id,
-            session_id_string,
-            self.thread_id.to_string(),
-            window_id,
-            &session_source,
-            &config.cwd,
-            &config_snapshot.permission_profile,
-            /*sandbox*/ None,
-        )
-        .await;
-        let mut stream = client_session
-            .stream(
-                prompt,
-                &context.model_info,
-                &context.session_telemetry,
-                context.reasoning_effort.clone(),
-                context.reasoning_summary,
-                context.service_tier.clone(),
-                &responses_metadata,
-                &InferenceTraceContext::disabled(),
+        let scope = self.thread.inference_work_scope();
+        let mut work_guard = scope.as_ref().and_then(|scope| {
+            scope.start_detached_work(
+                format!("memory-stage-one:{}", uuid::Uuid::new_v4()),
+                None,
+                self.thread_id,
+                InferenceWorkKind::Memory,
             )
-            .await?;
+        });
+        let result = async {
+            let installation_id = resolve_installation_id(&config.codex_home).await?;
+            let config_snapshot = self.thread.config_snapshot().await;
+            let session_source = config_snapshot.session_source;
+            let session_id = SessionId::from(self.thread_id);
+            let session_id_string = session_id.to_string();
+            let model_client = ModelClient::new(
+                Some(Arc::clone(&self.auth_manager)),
+                AgentIdentityAuthPolicy::JwtOnly,
+                self.thread_id,
+                config.model_provider.clone(),
+                session_source.clone(),
+                config_snapshot.originator,
+                config.model_verbosity,
+                config.features.enabled(Feature::ContentItemKinds),
+                config.features.enabled(Feature::EnableRequestCompression),
+                config.features.enabled(Feature::RuntimeMetrics),
+                /*beta_features_header*/ None,
+                /*concurrent_reasoning_summaries_enabled*/ false,
+                /*attestation_provider*/ None,
+                config.http_client_factory(),
+            );
 
-        let mut result = String::new();
-        let mut token_usage = None;
-        while let Some(message) = stream.next().await.transpose()? {
-            match message {
-                ResponseEvent::OutputTextDelta(delta) => result.push_str(&delta),
-                ResponseEvent::OutputItemDone(item) => {
-                    if result.is_empty()
-                        && let codex_protocol::models::ResponseItem::Message { content, .. } = item
-                        && let Some(text) = content_items_to_text(&content)
-                    {
-                        result.push_str(&text);
+            let mut client_session = model_client.new_session();
+            let window_id = format!("{}:0", self.thread_id);
+            let responses_metadata = detached_memory_responses_metadata(
+                installation_id,
+                session_id_string,
+                self.thread_id.to_string(),
+                window_id,
+                &session_source,
+                &config.cwd,
+                &config_snapshot.permission_profile,
+                /*sandbox*/ None,
+                scope.as_ref().map(InferenceWorkScope::scope_id),
+            )
+            .await;
+            let mut stream = client_session
+                .stream(
+                    prompt,
+                    &context.model_info,
+                    &context.session_telemetry,
+                    context.reasoning_effort.clone(),
+                    context.reasoning_summary,
+                    context.service_tier.clone(),
+                    &responses_metadata,
+                    &InferenceTraceContext::disabled(),
+                )
+                .await?;
+
+            let mut result = String::new();
+            let mut token_usage = None;
+            while let Some(message) = stream.next().await.transpose()? {
+                match message {
+                    ResponseEvent::OutputTextDelta(delta) => result.push_str(&delta),
+                    ResponseEvent::OutputItemDone(item) => {
+                        if result.is_empty()
+                            && let codex_protocol::models::ResponseItem::Message { content, .. } =
+                                item
+                            && let Some(text) = content_items_to_text(&content)
+                        {
+                            result.push_str(&text);
+                        }
                     }
+                    ResponseEvent::Completed {
+                        token_usage: usage, ..
+                    } => {
+                        token_usage = usage;
+                        break;
+                    }
+                    _ => {}
                 }
-                ResponseEvent::Completed {
-                    token_usage: usage, ..
-                } => {
-                    token_usage = usage;
-                    break;
-                }
-                _ => {}
             }
-        }
 
-        Ok((result, token_usage))
+            Ok((result, token_usage))
+        }
+        .await;
+        if let Some(guard) = work_guard.as_mut() {
+            guard.finish(if result.is_ok() {
+                InferenceWorkOutcome::Completed
+            } else {
+                InferenceWorkOutcome::Failed
+            });
+        }
+        result
     }
 
     pub(crate) async fn spawn_consolidation_agent(
@@ -339,7 +364,15 @@ impl MemoryStartupContext {
         let agent = SpawnedConsolidationAgent { thread_id, thread };
         let submit_result = match agent
             .thread
-            .start_turn_if_idle(TurnInputRequest::user_input(prompt))
+            .start_turn_if_idle(
+                TurnInputRequest::user_input(prompt).on_start(codex_core::TurnStartOptions {
+                    inference_work_scope: self
+                        .thread
+                        .inference_work_scope()
+                        .map(|scope| scope.scope_id().to_string()),
+                    ..Default::default()
+                }),
+            )
             .await
         {
             Ok(StartIfIdleSubmission::Started { .. }) => Ok(()),

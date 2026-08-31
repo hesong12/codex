@@ -262,6 +262,15 @@ impl CodexThread {
         &self.session.services.thread_extension_data
     }
 
+    /// Returns the latest host-scoped inference marker attached to this thread.
+    pub fn inference_work_scope(&self) -> Option<crate::InferenceWorkScope> {
+        self.session
+            .services
+            .thread_extension_data
+            .get::<crate::InferenceWorkScope>()
+            .map(|scope| scope.as_ref().clone())
+    }
+
     pub async fn shutdown_and_wait(&self) -> CodexResult<()> {
         self.io.shutdown_and_wait().await
     }

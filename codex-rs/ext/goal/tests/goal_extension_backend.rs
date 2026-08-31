@@ -1672,6 +1672,7 @@ impl GoalExtensionHarness {
                     turn_id,
                     collaboration_mode: &collaboration_mode,
                     token_usage_at_turn_start: usage,
+                    inference_work_scope: None,
                     session_store: &self.session_store,
                     thread_store: &self.thread_store,
                     turn_store: &turn_store,

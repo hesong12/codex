@@ -120,6 +120,9 @@ pub(super) async fn handle_message_string_tool(
             crate::TurnStartOptions {
                 parent_turn_id,
                 root_turn_id: turn.turn_metadata_state.root_turn_id(),
+                inference_work_scope: turn
+                    .inference_work_scope()
+                    .map(|scope| scope.scope_id().to_string()),
                 cyber_access_program: turn.cyber_access_program,
                 ..Default::default()
             },

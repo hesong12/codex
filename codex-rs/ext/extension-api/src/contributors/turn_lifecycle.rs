@@ -13,6 +13,8 @@ pub struct TurnStartInput<'a> {
     pub collaboration_mode: &'a CollaborationMode,
     /// Total token usage snapshot captured when the turn started.
     pub token_usage_at_turn_start: &'a TokenUsage,
+    /// Opaque non-secret marker inherited by native inference descendants.
+    pub inference_work_scope: Option<&'a str>,
     /// Store scoped to the host session runtime.
     pub session_store: &'a ExtensionData,
     /// Store scoped to this thread runtime.

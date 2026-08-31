@@ -108,27 +108,32 @@ async fn handle_spawn_agent(
     apply_spawn_agent_service_tier(&session, &mut config).await?;
     apply_spawn_agent_runtime_overrides(&mut config, turn.as_ref())?;
 
-    let result = Box::pin(session.services.agent_control.spawn_agent_with_metadata(
-        config,
-        input_items,
-        Some(thread_spawn_source(
-            session.thread_id,
-            &turn.session_source,
-            child_depth,
-            role_name,
-            /*task_name*/ None,
-        )?),
-        SpawnAgentOptions {
-            fork_parent_spawn_call_id: args.fork_context.then(|| call_id.clone()),
-            fork_mode: args.fork_context.then_some(SpawnAgentForkMode::FullHistory),
-            parent_thread_id: Some(session.thread_id),
-            parent_turn_id: Some(turn.sub_id.clone()),
-            root_turn_id: turn.turn_metadata_state.root_turn_id(),
-            environments: Some(step_context.environments.to_selections()),
-            multi_agent_v2_usage_hints: None,
-            cyber_access_program: turn.cyber_access_program,
-        },
-    ))
+    let result = Box::pin(
+        session.services.agent_control.spawn_agent_with_metadata(
+            config,
+            input_items,
+            Some(thread_spawn_source(
+                session.thread_id,
+                &turn.session_source,
+                child_depth,
+                role_name,
+                /*task_name*/ None,
+            )?),
+            SpawnAgentOptions {
+                fork_parent_spawn_call_id: args.fork_context.then(|| call_id.clone()),
+                fork_mode: args.fork_context.then_some(SpawnAgentForkMode::FullHistory),
+                parent_thread_id: Some(session.thread_id),
+                parent_turn_id: Some(turn.sub_id.clone()),
+                root_turn_id: turn.turn_metadata_state.root_turn_id(),
+                inference_work_scope: turn
+                    .inference_work_scope()
+                    .map(|scope| scope.scope_id().to_string()),
+                environments: Some(step_context.environments.to_selections()),
+                multi_agent_v2_usage_hints: None,
+                cyber_access_program: turn.cyber_access_program,
+            },
+        ),
+    )
     .await
     .map_err(collab_spawn_error);
     let (new_thread_id, new_agent_metadata, status) = match &result {

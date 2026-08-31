@@ -93,6 +93,9 @@ impl Handler {
                 crate::TurnStartOptions {
                     parent_turn_id: Some(turn.sub_id.clone()),
                     root_turn_id: turn.turn_metadata_state.root_turn_id(),
+                    inference_work_scope: turn
+                        .inference_work_scope()
+                        .map(|scope| scope.scope_id().to_string()),
                     cyber_access_program: turn.cyber_access_program,
                     ..Default::default()
                 },

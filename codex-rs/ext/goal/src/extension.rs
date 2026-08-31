@@ -229,6 +229,18 @@ where
                 return;
             }
 
+            if let Some(scope_id) = input.inference_work_scope {
+                let options = input
+                    .thread_store
+                    .get::<TurnStartOptions>()
+                    .map(|options| options.as_ref().clone())
+                    .unwrap_or_default();
+                input.thread_store.insert(TurnStartOptions {
+                    inference_work_scope: Some(scope_id.to_string()),
+                    ..options
+                });
+            }
+
             if let Err(err) = self
                 .state_dbs
                 .thread_goals()
